@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Sales Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <div class="chat-header">
+            <h1>AI Sales Assistant</h1>
+            <div class="header-controls">
+                <button id="resetBtn" title="Reset conversation">
+                    <i class="fas fa-redo"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="chat-container">
+            <div id="chatMessages" class="chat-messages">
+                <!-- Messages will be inserted here by JavaScript -->
+            </div>
+            
+            <div class="typing-indicator" id="typingIndicator">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+        
+        <div class="chat-input-container">
+            <textarea id="userInput" placeholder="Type your message here..." rows="1"></textarea>
+            <div class="input-buttons">
+                <button id="micBtn" title="Speak">
+                    <i class="fas fa-microphone"></i>
+                </button>
+                <button id="sendBtn" title="Send">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="audio-controls">
+            <button id="muteBtn" title="Mute/Unmute">
+                <i class="fas fa-volume-up"></i>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Audio element for text-to-speech -->
+    <audio id="speechOutput" style="display: none;"></audio>
+    
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
