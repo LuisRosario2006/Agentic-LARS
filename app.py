@@ -11,11 +11,6 @@ try:
     import ai_engine
     ai_engine_available = True
     # Initialize AI engine
-    ai_engine.initialize()
-    print("AI engine imported and initialized successfully")
-except ImportError as e:
-    print(f"Warning: Could not import ai_engine: {e}")
-    ai_engine_available = False
 except Exception as e:
     print(f"Error initializing ai_engine: {e}")
     ai_engine_available = False
@@ -33,7 +28,7 @@ def start_conversation():
     if ai_engine_available:
         initial_message = ai_engine.get_initial_message()
     else:
-        initial_message = "Hey! I see you're looking to optimize IT strategy. Have you considered a Solution Assessment?"
+        initial_message = "Error I could not get the initial message"
     return jsonify({
         'message': initial_message,
         'role': 'assistant'
