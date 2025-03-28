@@ -1,5 +1,5 @@
-from flask import Flask, render_template, request, jsonify
-import os
+from flask import Flask, render_template, request, jsonify, send_file
+import os,io
 
 print("Starting app.py - imports successful")
 
@@ -59,23 +59,29 @@ def speech_to_text():
     print("Route '/api/speech-to-text' requested")
     if ai_engine_available:
         text = ai_engine.speech_to_text()
+        print("speech to text successful")
     else:
         text = "Speech recognition is not available in demo mode."
     return jsonify({'text': text})
 
 @app.route('/api/text-to-speech', methods=['POST'])
 def text_to_speech():
-    """Convert text to speech and return audio URL or data"""
+    """Convert text to speech and return audio stream"""
     print("Route '/api/text-to-speech' requested")
     text = request.json.get('text', '')
+    
     if not text:
         return jsonify({'error': 'No text provided'}), 400
-    
-    # In a real implementation, this would generate audio and return a URL
+
     if ai_engine_available:
-        ai_engine.synthesize_speech(text)
-    
-    return jsonify({'success': True})
+        audio_stream = ai_engine.synthesize_speech(text)
+        
+        if audio_stream and isinstance(audio_stream, io.BytesIO):
+            return send_file(audio_stream, mimetype='audio/mpeg')
+        else:
+            return jsonify({'error': 'Failed to generate audio'}), 500
+    else:
+        return jsonify({'error': 'Speech synthesis not available'}), 500
 
 @app.route('/api/reset-conversation', methods=['POST'])
 def reset_conversation():
@@ -84,6 +90,7 @@ def reset_conversation():
     try:
         if ai_engine_available:
             ai_engine.reset_conversation()
+            print(f"Reset Conversation Succes:")
         return jsonify({'success': True})
     except Exception as e:
         print(f"Error resetting conversation: {e}")

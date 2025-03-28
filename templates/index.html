@@ -1,57 +1,85 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Sales Assistant</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Sales Assistant</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet">
 </head>
 <body>
-    <div class="app-container">
-        <div class="chat-header">
-            <h1>AI Sales Assistant</h1>
-            <div class="header-controls">
-                <button id="resetBtn" title="Reset conversation">
-                    <i class="fas fa-redo"></i>
-                </button>
-            </div>
-        </div>
-        
-        <div class="chat-container">
-            <div id="chatMessages" class="chat-messages">
-                <!-- Messages will be inserted here by JavaScript -->
-            </div>
-            
-            <div class="typing-indicator" id="typingIndicator">
-                <span></span>
-                <span></span>
-                <span></span>
-            </div>
-        </div>
-        
-        <div class="chat-input-container">
-            <textarea id="userInput" placeholder="Type your message here..." rows="1"></textarea>
-            <div class="input-buttons">
-                <button id="micBtn" title="Speak">
-                    <i class="fas fa-microphone"></i>
-                </button>
-                <button id="sendBtn" title="Send">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
-            </div>
-        </div>
-        
-        <div class="audio-controls">
-            <button id="muteBtn" title="Mute/Unmute">
-                <i class="fas fa-volume-up"></i>
-            </button>
-        </div>
-    </div>
-    
-    <!-- Audio element for text-to-speech -->
-    <audio id="speechOutput" style="display: none;"></audio>
-    
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+ 
+    <!-- Start Screen -->
+<div id="startScreen" style="display: flex; justify-content: center; align-items: center; height: 100vh; background: #ffffff;">
+<button id="startBtn" style="
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background-color: #0078d4;
+            color: white;
+            border: none;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            transition: background-color 0.3s ease;
+        ">
+            Start
+</button>
+</div>
+ 
+    <!-- Chat App Container -->
+<div class="app-container" style="display: none;">
+<div class="chat-header">
+<h1>AI Sales Assistant</h1>
+<div class="header-controls">
+<button id="resetBtn" title="Reset conversation">
+<i class="fas fa-redo"></i>
+</button>
+</div>
+</div>
+<div class="chat-container">
+<div id="chatMessages" class="chat-messages">
+<!-- Messages will be inserted here by JavaScript -->
+</div>
+<div class="typing-indicator" id="typingIndicator">
+<span></span>
+<span></span>
+<span></span>
+</div>
+</div>
+<div class="chat-input-container">
+<textarea id="userInput" placeholder="Type your message here..." rows="1"></textarea>
+<div class="input-buttons">
+<button id="micBtn" title="Speak">
+<i class="fas fa-microphone"></i>
+</button>
+<button id="sendBtn" title="Send">
+<i class="fas fa-paper-plane"></i>
+</button>
+</div>
+</div>
+<div class="audio-controls">
+<button id="muteBtn" title="Mute/Unmute">
+<i class="fas fa-volume-up"></i>
+</button>
+</div>
+</div>
+<!-- Audio element for text-to-speech -->
+<audio id="speechOutput" style="display: none;"></audio>
+ 
+    <!-- Scripts -->
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+<script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const startScreen = document.getElementById("startScreen");
+            const startBtn = document.getElementById("startBtn");
+            const appContainer = document.querySelector(".app-container");
+ 
+            startBtn.addEventListener("click", () => {
+                startScreen.style.display = "none";
+                appContainer.style.display = "flex";
+            });
+        });
+</script>
 </body>
 </html>

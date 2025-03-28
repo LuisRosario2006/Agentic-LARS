@@ -3,9 +3,12 @@ import azure.cognitiveservices.speech as speechsdk
 import openai
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
-import tempfile
-import uuid
 
+import time
+from io import BytesIO
+from azure.cognitiveservices.speech import SpeechSynthesizer, SpeechConfig, ResultReason
+from azure.cognitiveservices.speech.audio import AudioOutputConfig
+import os
 # Global variables
 speech_config = None
 synthesizer = None
@@ -29,7 +32,7 @@ conversation_history = [
     5. **Handle objections and push gently** (up to three attempts).
     6. **If customer is firm on 'No'**, offer a follow-up later.
     """},
-    {"role": "assistant", "content": "Hey! I see you're looking to optimize IT strategy. Have you considered a Solution?"}
+    {"role": "assistant", "content": "Hey! I see you're looking to optimize IT strategy. Have you considered a Solution Assessment?"}
 ]
 # 1️⃣ Connect to Azure Key Vault to Fetch API Keys
 key_vault_url = f"https://kv-apeirona312485399456.vault.azure.net/"
@@ -40,16 +43,18 @@ AZURE_SPEECH_KEY = kv_client.get_secret("AZURE-SPEECH-KEY").value
 AZURE_SPEECH_REGION = kv_client.get_secret("AZURE-SPEECH-REGION").value
 OPENAI_API_KEY = kv_client.get_secret("OPENAI-API-KEY").value
 OPENAI_ENDPOINT = kv_client.get_secret("OPENAI-ENDPOINT").value
+
+
 OPENAI_DEPLOYMENT_NAME = kv_client.get_secret("OPENAI-DEPLOYMENT-NAME").value
-    # Configure Azure Speech services
-speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
-speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
-synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
+
 # Configure OpenAI client
 client = openai.AzureOpenAI(
 api_key=OPENAI_API_KEY,
 api_version="2024-02-15-preview",
 azure_endpoint=OPENAI_ENDPOINT)
+
+speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
+speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
 
 def get_initial_message():
     """Get the initial message from the AI assistant"""
@@ -57,6 +62,7 @@ def get_initial_message():
 #Validated Speech to Text
 def speech_to_text():
     """Convert speech to text using Azure Speech Services"""
+    
     audio_config = speechsdk.AudioConfig(use_default_microphone=True)
     recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
 
@@ -94,21 +100,67 @@ def get_gpt_response(user_text):
         return error_message
 
 def synthesize_speech(text):
-    """Convert text to speech using Azure Speech Services"""
+    """Convert text to speech using Azure Speech Services and return audio stream"""
     try:
+        # Azure Speech Configuration (Replace with your actual key and region)
+            # Configure Azure Speech services
+
+        
+        # Temporary file for saving audio (Azure SDK limitation)
+        temp_filename = "temp_output.mp3"
+        audio_config = AudioOutputConfig(filename=temp_filename)
+
+        # Create a speech synthesizer
+        synthesizer = SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+        
+        # Synthesize speech to the temporary file
         result = synthesizer.speak_text_async(text).get()
         
-        # In a web context, you'd typically save this to a file and return the URL
-        # This is a simplified version
-        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+        if result.reason == ResultReason.SynthesizingAudioCompleted:
             print("Speech synthesis succeeded")
-            return True
-        else:
-            print(f"Speech synthesis failed: {result.reason}")
-            return False
+
+            # Force releasing file handle by setting synthesizer to None and adding delay
+            synthesizer = None
+            time.sleep(1)  # Give the system some time to release the file handle
+
+            # Retry mechanism to ensure the file is accessible
+            max_attempts = 10
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    with open(temp_filename, "rb") as f:
+                        audio_data = f.read()  # Read the entire file into memory
+                    break  # Exit the loop if file reading is successful
+                except Exception as e:
+                    print(f"File access error, retrying... Attempt {attempts + 1}")
+                    attempts += 1
+                    time.sleep(0.5)
+
+            if attempts == max_attempts:
+                print(f"Failed to access the file after {max_attempts} attempts.")
+                return None
+
+            # ✅ Convert to BytesIO object (Very Important)
+            audio_stream = BytesIO(audio_data)
+            os.remove(temp_filename)  # Delete the temporary file
+            audio_stream.seek(0)  # Reset the stream position to the beginning
+            
+            return audio_stream  # Return the in-memory audio stream
+
+        elif result.reason == ResultReason.Canceled:
+            cancellation_details = result.cancellation_details
+            print(f"Speech synthesis canceled: {cancellation_details.reason}")
+            if cancellation_details.error_details:
+                print(f"Error details: {cancellation_details.error_details}")
+            return None
+
     except Exception as e:
         print(f"Error in speech synthesis: {e}")
-        return False
+        return None
+
+    except Exception as e:
+        print(f"Error in speech synthesis: {e}")
+        return None
 
 def reset_conversation():
     """Reset the conversation to initial state"""
