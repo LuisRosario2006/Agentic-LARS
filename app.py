@@ -50,7 +50,6 @@ def send_message():
     
     return jsonify({
         'message': ai_response,
-        'role': 'assistant'
     })
 
 @app.route('/api/speech-to-text', methods=['POST'])
