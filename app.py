@@ -1,18 +1,14 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import os,io
 
-print("Starting app.py - imports successful")
-
 app = Flask(__name__)
-print("Flask app instance created")
 
-# Try to import AI engine, but handle failure gracefully
+# Initialize AI engine
 try:
     import ai_engine
     ai_engine_available = True
-    # Initialize AI engine
 except Exception as e:
-    print(f"Error initializing ai_engine: {e}")
+    print(f"Error initializing AI engine: {e}")
     ai_engine_available = False
 
 @app.route('/')
@@ -57,29 +53,60 @@ def speech_to_text():
     """Convert speech to text using Azure"""
     print("Route '/api/speech-to-text' requested")
     if ai_engine_available:
-        text = ai_engine.speech_to_text()
-        print("speech to text successful")
+        try:
+            print("Attempting to start speech recognition...")
+            text = ai_engine.speech_to_text()
+            if text:
+                print(f"Speech recognition successful: {text}")
+            else:
+                print("No text was recognized")
+        except Exception as e:
+            print(f"Error in speech recognition: {e}")
+            return jsonify({'error': str(e)}), 500
     else:
         text = "Speech recognition is not available in demo mode."
+        print("AI engine not available")
     return jsonify({'text': text})
 
 @app.route('/api/text-to-speech', methods=['POST'])
 def text_to_speech():
     """Convert text to speech and return audio stream"""
-    print("Route '/api/text-to-speech' requested")
+    print("\n=== Text-to-Speech Request ===")
     text = request.json.get('text', '')
+    print(f"Full text received: {text}")
     
     if not text:
+        print("Error: No text provided")
         return jsonify({'error': 'No text provided'}), 400
 
     if ai_engine_available:
-        audio_stream = ai_engine.synthesize_speech(text)
-        
-        if audio_stream and isinstance(audio_stream, io.BytesIO):
-            return send_file(audio_stream, mimetype='audio/mpeg')
-        else:
-            return jsonify({'error': 'Failed to generate audio'}), 500
+        try:
+            print("Calling synthesize_speech...")
+            audio_stream = ai_engine.synthesize_speech(text)
+            
+            if audio_stream and isinstance(audio_stream, io.BytesIO):
+                print("Audio stream generated successfully")
+                # Get stream size for debugging
+                stream_size = audio_stream.getbuffer().nbytes
+                print(f"Audio stream size: {stream_size} bytes")
+                
+                response = send_file(
+                    audio_stream,
+                    mimetype='audio/mpeg',
+                    as_attachment=True,
+                    download_name='speech.mp3'
+                )
+                # Ensure proper headers for audio streaming
+                response.headers['Accept-Ranges'] = 'bytes'
+                return response
+            else:
+                print("Error: Audio stream generation failed")
+                return jsonify({'error': 'Failed to generate audio'}), 500
+        except Exception as e:
+            print(f"Error in speech synthesis: {e}")
+            return jsonify({'error': str(e)}), 500
     else:
+        print("Error: Speech synthesis not available - AI engine not loaded")
         return jsonify({'error': 'Speech synthesis not available'}), 500
 
 @app.route('/api/reset-conversation', methods=['POST'])
