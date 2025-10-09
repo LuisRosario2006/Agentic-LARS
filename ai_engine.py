@@ -7,7 +7,6 @@ from azure.cognitiveservices.speech.audio import AudioOutputConfig
 import openai
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
-from azure.cognitiveservices.speech.audio import AudioOutputConfig
 import os
 # Global variables
 speech_config = None
@@ -153,9 +152,17 @@ OPENAI_DEPLOYMENT_NAME = get_secret(kv_client, "OPENAI-DEPLOYMENT-NAME") or os.g
 if OPENAI_API_KEY:
     os.environ["AZURE_OPENAI_API_KEY"] = OPENAI_API_KEY
 
+# Initialize default values
+base_endpoint = None
+api_version = "2024-08-01-preview"  # Default API version
+
 # Set Azure OpenAI endpoint
 if OPENAI_ENDPOINT:
-    base_endpoint = OPENAI_ENDPOINT.split("/openai/deployments")[0]
+    # Extract base endpoint (remove deployment path and query parameters)
+    if "/openai/deployments" in OPENAI_ENDPOINT:
+        base_endpoint = OPENAI_ENDPOINT.split("/openai/deployments")[0]
+    else:
+        base_endpoint = OPENAI_ENDPOINT.split("?")[0]
     os.environ["AZURE_OPENAI_ENDPOINT"] = base_endpoint
     print(f"Setting Azure OpenAI endpoint to: {base_endpoint}")
 
@@ -164,44 +171,61 @@ if OPENAI_ENDPOINT and "api-version=" in OPENAI_ENDPOINT:
     api_version = OPENAI_ENDPOINT.split("api-version=")[-1].split("&")[0]
     os.environ["OPENAI_API_VERSION"] = api_version
     print(f"Setting API version to: {api_version}")
-
-# Clean up endpoint URL to remove query parameters
-if OPENAI_ENDPOINT:
-    OPENAI_ENDPOINT = OPENAI_ENDPOINT.split("?")[0]
+else:
+    print(f"Using default API version: {api_version}")
 
 # Validate required configuration
-if not all([OPENAI_API_KEY, OPENAI_ENDPOINT, OPENAI_DEPLOYMENT_NAME]):
-    print("Warning: Missing required OpenAI configuration. Please check Key Vault access or environment variables.")
-    print(f"  API Key: {'Set' if OPENAI_API_KEY else 'Missing'}")
-    print(f"  Endpoint: {'Set' if OPENAI_ENDPOINT else 'Missing'}")
-    print(f"  Deployment: {'Set' if OPENAI_DEPLOYMENT_NAME else 'Missing'}")
+missing_openai_config = []
+if not OPENAI_API_KEY:
+    missing_openai_config.append("API Key")
+if not OPENAI_ENDPOINT:
+    missing_openai_config.append("Endpoint")
+if not OPENAI_DEPLOYMENT_NAME:
+    missing_openai_config.append("Deployment Name")
 
-if not all([AZURE_SPEECH_KEY, AZURE_SPEECH_REGION]):
-    print("Warning: Missing Azure Speech configuration. Speech-to-text and text-to-speech features will be unavailable.")
-    print(f"  Speech Key: {'Set' if AZURE_SPEECH_KEY else 'Missing'}")
-    print(f"  Region: {'Set' if AZURE_SPEECH_REGION else 'Missing'}")
+if missing_openai_config:
+    error_msg = f"CRITICAL ERROR: Missing required OpenAI configuration: {', '.join(missing_openai_config)}"
+    print(error_msg)
+    print("Application cannot function without OpenAI configuration. Please check Key Vault access or environment variables.")
+    # Set client to None to prevent usage
+    client = None
+
+missing_speech_config = []
+if not AZURE_SPEECH_KEY:
+    missing_speech_config.append("Speech Key")
+if not AZURE_SPEECH_REGION:
+    missing_speech_config.append("Region")
+
+if missing_speech_config:
+    print(f"Warning: Missing Azure Speech configuration: {', '.join(missing_speech_config)}")
+    print("Speech-to-text and text-to-speech features will be unavailable.")
 
 # Configure OpenAI client
 try:
-    if OPENAI_API_KEY and OPENAI_ENDPOINT:
-        # Use legacy import for better compatibility
-        import openai
-
-        # Set up configuration
-        openai.api_type = "azure"
-        openai.api_base = base_endpoint
-        openai.api_version = api_version
-        openai.api_key = OPENAI_API_KEY
-
-        print("OpenAI configuration set successfully")
-        # Using the module directly in v0.28.1
-        client = openai
-        print("OpenAI client set successfully")
+    if OPENAI_API_KEY and OPENAI_ENDPOINT and base_endpoint:
+        from openai import AzureOpenAI
+        
+        # Initialize AzureOpenAI client for v1.x
+        client = AzureOpenAI(
+            api_key=OPENAI_API_KEY,
+            api_version=api_version,
+            azure_endpoint=base_endpoint
+        )
+        
+        print("OpenAI client initialized successfully")
     else:
-        print("OpenAI client not configured - missing API key or endpoint")
+        print("OpenAI client not configured - missing API key, endpoint, or invalid endpoint format")
+        if not OPENAI_API_KEY:
+            print("  - Missing API key")
+        if not OPENAI_ENDPOINT:
+            print("  - Missing endpoint")
+        if not base_endpoint:
+            print("  - Could not extract base endpoint from provided endpoint")
         client = None
 except Exception as e:
     print(f"Error configuring OpenAI client: {e}")
+    import traceback
+    traceback.print_exc()
     client = None
 
 # Initialize speech configuration
@@ -250,6 +274,14 @@ def get_gpt_response(user_text):
 
     global conversation_history, client
 
+    # Check if client is available
+    if not client:
+        error_message = "I'm currently unable to connect to my AI services. Please ensure the system is properly configured with valid credentials."
+        print("ERROR: OpenAI client is not initialized")
+        conversation_history.append({"role": "user", "content": user_text})
+        conversation_history.append({"role": "assistant", "content": error_message})
+        return error_message
+
     # Add user input to conversation history
     conversation_history.append({"role": "user", "content": user_text})
     
@@ -270,55 +302,55 @@ def get_gpt_response(user_text):
 
 def synthesize_speech(text):
     """Convert text to speech using Azure Speech Services and return audio stream"""
+    temp_filename = "temp_output.mp3"
+    
     try:
         if not speech_config:
             configure_speech()
             if not speech_config:
                 print("Speech configuration is not initialized")
                 return None
-            
-        # Temporary file for saving audio
-        temp_filename = "temp_output.mp3"
+        
+        # Configure audio output to file
         audio_config = AudioOutputConfig(filename=temp_filename)
 
-        # Create a speech synthesizer and ensure proper cleanup
-        synthesizer = None
-        try:
-            synthesizer = SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-            result = synthesizer.speak_text_async(text).get()
+        # Create a speech synthesizer with proper cleanup
+        synthesizer = SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+        result = synthesizer.speak_text_async(text).get()
+        
+        if result.reason == ResultReason.SynthesizingAudioCompleted:
+            print("Speech synthesis succeeded")
+            # Explicitly close the synthesizer to release file handles
+            del synthesizer
+            time.sleep(0.1)  # Brief delay to ensure file handle is released
             
-            if result.reason == ResultReason.SynthesizingAudioCompleted:
-                print("Speech synthesis succeeded")
-                # Need to release synthesizer before accessing the file
-                synthesizer = None
-                time.sleep(0.5)  # Short delay for file handle release
-                
-                # Read the audio file
-                with open(temp_filename, "rb") as f:
-                    audio_data = f.read()
-                
-                # Create memory stream
-                audio_stream = BytesIO(audio_data)
-                os.remove(temp_filename)  # Clean up the temporary file
-                audio_stream.seek(0)  # Reset stream position
-                return audio_stream
-            else:
-                print(f"Speech synthesis failed: {result.reason}")
-                return None
-        finally:
-            # Ensure synthesizer is always cleaned up
-            if synthesizer:
-                synthesizer = None
+            # Read the audio file
+            with open(temp_filename, "rb") as f:
+                audio_data = f.read()
+            
+            # Clean up the temporary file
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
+            
+            # Create and return memory stream
+            audio_stream = BytesIO(audio_data)
+            audio_stream.seek(0)
+            return audio_stream
+        else:
+            print(f"Speech synthesis failed: {result.reason}")
+            del synthesizer
+            return None
 
     except Exception as e:
         print(f"Error in speech synthesis: {e}")
-        # Clean up temporary file if it exists
+        return None
+    finally:
+        # Ensure temporary file is always cleaned up
         if os.path.exists(temp_filename):
             try:
                 os.remove(temp_filename)
-            except:
-                pass
-        return None
+            except Exception as cleanup_error:
+                print(f"Warning: Could not remove temporary file: {cleanup_error}")
 
 def reset_conversation():
     """Reset the conversation to initial state"""
