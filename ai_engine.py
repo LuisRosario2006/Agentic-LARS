@@ -1,18 +1,40 @@
 import os
+import time
+from io import BytesIO
 import azure.cognitiveservices.speech as speechsdk
+from azure.cognitiveservices.speech import SpeechSynthesizer, SpeechConfig, ResultReason
+from azure.cognitiveservices.speech.audio import AudioOutputConfig
 import openai
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
-
-import time
-from io import BytesIO
-from azure.cognitiveservices.speech import SpeechSynthesizer, SpeechConfig, ResultReason
-from azure.cognitiveservices.speech.audio import AudioOutputConfig
 import os
 # Global variables
 speech_config = None
 synthesizer = None
 client = None
+
+# Configure speech service
+def configure_speech():
+    global speech_config
+    try:
+        if AZURE_SPEECH_KEY and AZURE_SPEECH_REGION:
+            print(f"Configuring speech with region: {AZURE_SPEECH_REGION}")
+            speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
+            speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
+            speech_config.speech_recognition_language = "en-US"
+            # Set output format to MP3
+            speech_config.set_speech_synthesis_output_format(speechsdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3)
+            print("Speech configuration initialized successfully")
+            return True
+        else:
+            print("Speech configuration failed - missing key or region")
+            print(f"Key available: {'Yes' if AZURE_SPEECH_KEY else 'No'}")
+            print(f"Region available: {'Yes' if AZURE_SPEECH_REGION else 'No'}")
+            return False
+    except Exception as e:
+        print(f"Error in speech configuration: {e}")
+        return False
+
 conversation_history = [
     {
         "role": "system",
@@ -53,26 +75,162 @@ Keep your tone professional, structured, and friendly.
 ]
 
 # 1️⃣ Connect to Azure Key Vault to Fetch API Keys
-key_vault_url = f"https://kv-apeirona312485399456.vault.azure.net/"
-credential = DefaultAzureCredential()
-kv_client = SecretClient(vault_url=key_vault_url, credential=credential)
-# Retrieve API Keys from Key Vault
-AZURE_SPEECH_KEY = kv_client.get_secret("AZURE-SPEECH-KEY").value
-AZURE_SPEECH_REGION = kv_client.get_secret("AZURE-SPEECH-REGION").value
-OPENAI_API_KEY = kv_client.get_secret("OPENAI-API-KEY").value
-OPENAI_ENDPOINT = kv_client.get_secret("OPENAI-ENDPOINT").value
+def get_key_vault_client():
+    """Initialize Key Vault client with proper error handling"""
+    key_vault_url = os.getenv("KEY_VAULT_URL", "https://kv-apeirona312485399456.vault.azure.net/")
+    
+    try:
+        # Try DefaultAzureCredential first
+        credential = DefaultAzureCredential()
+        # Test the credential
+        token = credential.get_token("https://vault.azure.net/.default")
+        if not token:
+            raise Exception("No token obtained")
+            
+        client = SecretClient(vault_url=key_vault_url, credential=credential)
+        # Test the client with a simple operation
+        list(client.list_properties_of_secrets(max_page_size=1))
+        print("Successfully connected to Key Vault")
+        return client
+    
+    except Exception as e:
+        print(f"Warning: Failed to connect to Key Vault using DefaultAzureCredential: {str(e)}")
+        try:
+            # Try Azure CLI credential as fallback
+            from azure.identity import AzureCliCredential
+            credential = AzureCliCredential()
+            client = SecretClient(vault_url=key_vault_url, credential=credential)
+            # Test the client
+            list(client.list_properties_of_secrets(max_page_size=1))
+            print("Successfully connected to Key Vault using Azure CLI credential")
+            return client
+        except Exception as cli_error:
+            print(f"Error: Could not connect to Key Vault using Azure CLI credential either: {str(cli_error)}")
+            return None
 
+def get_secret(client, secret_name, default=None):
+    """Safely retrieve a secret from Key Vault"""
+    if not client:
+        print(f"Warning: No Key Vault client available, cannot retrieve {secret_name}")
+        return default
+    
+    try:
+        return client.get_secret(secret_name).value
+    except Exception as e:
+        print(f"Error retrieving secret {secret_name}: {str(e)}")
+        return default
 
-OPENAI_DEPLOYMENT_NAME = kv_client.get_secret("OPENAI-DEPLOYMENT-NAME").value
+# Initialize Key Vault client
+kv_client = get_key_vault_client()
+
+# List all available secrets and their values (safely)
+if kv_client:
+    print("\nChecking secret values:")
+    try:
+        for secret_name in ["OPENAI-API-KEY", "OPENAI-ENDPOINT", "OPENAI-DEPLOYMENT-NAME"]:
+            value = get_secret(kv_client, secret_name)
+            if value:
+                # Show first/last 4 chars for API keys, full value for non-sensitive data
+                if "KEY" in secret_name:
+                    print(f"- {secret_name}: {value[:4]}...{value[-4:]}")
+                else:
+                    print(f"- {secret_name}: {value}")
+            else:
+                print(f"- {secret_name}: [No value retrieved]")
+    except Exception as e:
+        print(f"Error checking secrets: {str(e)}")
+    print("\n")
+
+# Retrieve API Keys from Key Vault with fallback to environment variables
+AZURE_SPEECH_KEY = get_secret(kv_client, "AZURE-SPEECH-KEY") or os.getenv("AZURE_SPEECH_KEY")
+AZURE_SPEECH_REGION = get_secret(kv_client, "AZURE-SPEECH-REGION") or os.getenv("AZURE_SPEECH_REGION")
+OPENAI_API_KEY = get_secret(kv_client, "OPENAI-API-KEY") or os.getenv("OPENAI_API_KEY")
+OPENAI_ENDPOINT = get_secret(kv_client, "OPENAI-ENDPOINT") or os.getenv("OPENAI_ENDPOINT")
+OPENAI_DEPLOYMENT_NAME = get_secret(kv_client, "OPENAI-DEPLOYMENT-NAME") or os.getenv("OPENAI_DEPLOYMENT_NAME")
+
+# Set environment variables for OpenAI client
+if OPENAI_API_KEY:
+    os.environ["AZURE_OPENAI_API_KEY"] = OPENAI_API_KEY
+
+# Initialize default values
+base_endpoint = None
+api_version = "2024-08-01-preview"  # Default API version
+
+# Set Azure OpenAI endpoint
+if OPENAI_ENDPOINT:
+    # Extract base endpoint (remove deployment path and query parameters)
+    if "/openai/deployments" in OPENAI_ENDPOINT:
+        base_endpoint = OPENAI_ENDPOINT.split("/openai/deployments")[0]
+    else:
+        base_endpoint = OPENAI_ENDPOINT.split("?")[0]
+    os.environ["AZURE_OPENAI_ENDPOINT"] = base_endpoint
+    print(f"Setting Azure OpenAI endpoint to: {base_endpoint}")
+
+# Extract API version from endpoint URL and set it
+if OPENAI_ENDPOINT and "api-version=" in OPENAI_ENDPOINT:
+    api_version = OPENAI_ENDPOINT.split("api-version=")[-1].split("&")[0]
+    os.environ["OPENAI_API_VERSION"] = api_version
+    print(f"Setting API version to: {api_version}")
+else:
+    print(f"Using default API version: {api_version}")
+
+# Validate required configuration
+missing_openai_config = []
+if not OPENAI_API_KEY:
+    missing_openai_config.append("API Key")
+if not OPENAI_ENDPOINT:
+    missing_openai_config.append("Endpoint")
+if not OPENAI_DEPLOYMENT_NAME:
+    missing_openai_config.append("Deployment Name")
+
+if missing_openai_config:
+    error_msg = f"CRITICAL ERROR: Missing required OpenAI configuration: {', '.join(missing_openai_config)}"
+    print(error_msg)
+    print("Application cannot function without OpenAI configuration. Please check Key Vault access or environment variables.")
+    # Set client to None to prevent usage
+    client = None
+
+missing_speech_config = []
+if not AZURE_SPEECH_KEY:
+    missing_speech_config.append("Speech Key")
+if not AZURE_SPEECH_REGION:
+    missing_speech_config.append("Region")
+
+if missing_speech_config:
+    print(f"Warning: Missing Azure Speech configuration: {', '.join(missing_speech_config)}")
+    print("Speech-to-text and text-to-speech features will be unavailable.")
 
 # Configure OpenAI client
-client = openai.AzureOpenAI(
-api_key=OPENAI_API_KEY,
-api_version="2024-02-15-preview",
-azure_endpoint=OPENAI_ENDPOINT)
+try:
+    if OPENAI_API_KEY and OPENAI_ENDPOINT and base_endpoint:
+        from openai import AzureOpenAI
+        
+        # Initialize AzureOpenAI client for v1.x
+        client = AzureOpenAI(
+            api_key=OPENAI_API_KEY,
+            api_version=api_version,
+            azure_endpoint=base_endpoint
+        )
+        
+        print("OpenAI client initialized successfully")
+    else:
+        print("OpenAI client not configured - missing API key, endpoint, or invalid endpoint format")
+        if not OPENAI_API_KEY:
+            print("  - Missing API key")
+        if not OPENAI_ENDPOINT:
+            print("  - Missing endpoint")
+        if not base_endpoint:
+            print("  - Could not extract base endpoint from provided endpoint")
+        client = None
+except Exception as e:
+    print(f"Error configuring OpenAI client: {e}")
+    import traceback
+    traceback.print_exc()
+    client = None
 
-speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
-speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
+# Initialize speech configuration
+configure_speech()
+print("Speech config status:", "Initialized" if speech_config else "Not initialized")
 
 def get_initial_message():
     """Get the initial message from the AI assistant"""
@@ -80,24 +238,49 @@ def get_initial_message():
 #Validated Speech to Text
 def speech_to_text():
     """Convert speech to text using Azure Speech Services"""
-    
-    audio_config = speechsdk.AudioConfig(use_default_microphone=True)
-    recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+    try:
+        if not speech_config:
+            configure_speech()
+            if not speech_config:
+                return "ERROR: Speech services not configured"
 
-    print("Listening...")
-    result = recognizer.recognize_once()
+        audio_config = speechsdk.AudioConfig(use_default_microphone=True)
+        speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
 
-    if result.reason == speechsdk.ResultReason.RecognizedSpeech:
-        return result.text
-    elif result.reason == speechsdk.ResultReason.NoMatch:
-        print("No speech could be recognized")
+        print("Listening...")
+        speech_recognition_result = speech_recognizer.recognize_once()
+
+        if speech_recognition_result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            recognized_text = speech_recognition_result.text
+            print(f"Recognized: {recognized_text}")
+            return recognized_text
+        elif speech_recognition_result.reason == speechsdk.ResultReason.Canceled:
+            cancellation_details = speechsdk.CancellationDetails(speech_recognition_result)
+            print(f"Speech Recognition canceled: {cancellation_details.reason}")
+            print(f"Error details: {cancellation_details.error_details}")
+            return ""
+            
+        print(f"No speech could be recognized: {speech_recognition_result.reason}")
         return ""
+            
+    except Exception as e:
+        print(f"Error in speech recognition: {str(e)}")
+        return ""
+    
     return ""
 
 def get_gpt_response(user_text):
     """Get a response from OpenAI's GPT model"""
 
     global conversation_history, client
+
+    # Check if client is available
+    if not client:
+        error_message = "I'm currently unable to connect to my AI services. Please ensure the system is properly configured with valid credentials."
+        print("ERROR: OpenAI client is not initialized")
+        conversation_history.append({"role": "user", "content": user_text})
+        conversation_history.append({"role": "assistant", "content": error_message})
+        return error_message
 
     # Add user input to conversation history
     conversation_history.append({"role": "user", "content": user_text})
@@ -119,68 +302,59 @@ def get_gpt_response(user_text):
 
 def synthesize_speech(text):
     """Convert text to speech using Azure Speech Services and return audio stream"""
+    temp_filename = "temp_output.mp3"
+    
     try:
-        # Azure Speech Configuration (Replace with your actual key and region)
-            # Configure Azure Speech services
-
+        if not speech_config:
+            configure_speech()
+            if not speech_config:
+                print("Speech configuration is not initialized")
+                return None
         
-        # Temporary file for saving audio (Azure SDK limitation)
-        temp_filename = "temp_output.mp3"
+        # Configure audio output to file
         audio_config = AudioOutputConfig(filename=temp_filename)
 
-        # Create a speech synthesizer
+        # Create a speech synthesizer with proper cleanup
         synthesizer = SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-        
-        # Synthesize speech to the temporary file
         result = synthesizer.speak_text_async(text).get()
         
         if result.reason == ResultReason.SynthesizingAudioCompleted:
             print("Speech synthesis succeeded")
-
-            # Force releasing file handle by setting synthesizer to None and adding delay
-            synthesizer = None
-            time.sleep(1)  # Give the system some time to release the file handle
-
-            # Retry mechanism to ensure the file is accessible
-            max_attempts = 10
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    with open(temp_filename, "rb") as f:
-                        audio_data = f.read()  # Read the entire file into memory
-                    break  # Exit the loop if file reading is successful
-                except Exception as e:
-                    print(f"File access error, retrying... Attempt {attempts + 1}")
-                    attempts += 1
-                    time.sleep(0.5)
-
-            if attempts == max_attempts:
-                print(f"Failed to access the file after {max_attempts} attempts.")
-                return None
-
-            # ✅ Convert to BytesIO object (Very Important)
-            audio_stream = BytesIO(audio_data)
-            os.remove(temp_filename)  # Delete the temporary file
-            audio_stream.seek(0)  # Reset the stream position to the beginning
+            # Explicitly close the synthesizer to release file handles
+            del synthesizer
+            time.sleep(0.1)  # Brief delay to ensure file handle is released
             
-            return audio_stream  # Return the in-memory audio stream
-
-        elif result.reason == ResultReason.Canceled:
-            cancellation_details = result.cancellation_details
-            print(f"Speech synthesis canceled: {cancellation_details.reason}")
-            if cancellation_details.error_details:
-                print(f"Error details: {cancellation_details.error_details}")
+            # Read the audio file
+            with open(temp_filename, "rb") as f:
+                audio_data = f.read()
+            
+            # Clean up the temporary file
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
+            
+            # Create and return memory stream
+            audio_stream = BytesIO(audio_data)
+            audio_stream.seek(0)
+            return audio_stream
+        else:
+            print(f"Speech synthesis failed: {result.reason}")
+            del synthesizer
             return None
 
     except Exception as e:
         print(f"Error in speech synthesis: {e}")
         return None
-
-    except Exception as e:
-        print(f"Error in speech synthesis: {e}")
-        return None
+    finally:
+        # Ensure temporary file is always cleaned up
+        if os.path.exists(temp_filename):
+            try:
+                os.remove(temp_filename)
+            except Exception as cleanup_error:
+                print(f"Warning: Could not remove temporary file: {cleanup_error}")
 
 def reset_conversation():
     """Reset the conversation to initial state"""
     global conversation_history
     conversation_history = conversation_history[:2]  # Keep system prompt and initial message
+
+# OpenAI connection is already validated during client initialization
