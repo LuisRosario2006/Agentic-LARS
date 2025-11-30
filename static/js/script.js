@@ -240,14 +240,38 @@ async function showChatScreen() {
         await new Promise(resolve => setTimeout(resolve, 50));
         chatScreen.style.opacity = '1';
 
-        // Initialize avatar if available
+        // Initialize avatar for chat screen with chat elements, and stop landing loop
         if (window.avatarModule) {
-            console.log('Initializing avatar...');
-            const avatarInitialized = await window.avatarModule.initialize();
-            if (avatarInitialized) {
-                console.log('Avatar initialized successfully');
+            console.log('Initializing avatar for chat screen...');
+            try { 
+                landingLoopActive = false; 
+                // Close existing avatar connection before creating new one
+                window.avatarModule.close();
+                console.log('Previous avatar connection closed');
+            } catch (e) {
+                console.log('No previous avatar to close or error closing:', e);
+            }
+            
+            const videoEl = document.getElementById('avatarVideo');
+            const audioEl = document.getElementById('avatarAudio');
+            const statusEl = document.getElementById('avatarStatus');
+            
+            // Configure audio element for chat avatar
+            if (audioEl) {
+                audioEl.volume = 1.0;
+                audioEl.muted = false;
+            }
+            
+            const avatarInitialized = await window.avatarModule.initialize({
+                videoEl,
+                audioEl,
+                statusEl
+            });
+            if (avatarInitialized !== false) {
+                console.log('Avatar initialized on chat elements');
+                document.getElementById('avatarContainer')?.classList.remove('hidden');
             } else {
-                console.log('Avatar initialization failed, will use standard TTS');
+                console.log('Avatar initialization failed on chat; will use standard TTS');
             }
         }
 
@@ -314,9 +338,14 @@ async function playAudioResponse(message, skipDisplay = false, wasInterrupted = 
             // If we were interrupted, give a bit more time for cleanup
             const delay = wasInterrupted ? 300 : 100;
             await new Promise(resolve => setTimeout(resolve, delay));
-            
-            const success = await window.avatarModule.speak(cleanMessage);
+            // Track current speech promise so other flows (like showing the form) can wait
+            const speakPromise = window.avatarModule.speak(cleanMessage);
+            window.currentSpeechPromise = speakPromise;
+            const success = await speakPromise;
             hideTypingIndicator();
+            
+            // Clear the speech promise when avatar completes
+            window.currentSpeechPromise = null;
             
             if (success) {
                 console.log('Avatar speech completed successfully, voicemodestatus:', voicemodestatus, 'isFormActive:', isFormActive);
@@ -371,6 +400,10 @@ async function playAudioResponse(message, skipDisplay = false, wasInterrupted = 
         audioPlayer = new Audio(audioUrl);
         audioPlayer.volume = isMuted ? 0 : 1;
         isAITalking = true; // Set flag when starting playback
+        // Create a promise to signal when speech finishes
+        let speechResolve;
+        const speechPromise = new Promise(resolve => { speechResolve = resolve; });
+        window.currentSpeechPromise = speechPromise;
         
         console.log('Created new audio player');
         
@@ -402,6 +435,11 @@ async function playAudioResponse(message, skipDisplay = false, wasInterrupted = 
             console.log("Audio finished playing");
             URL.revokeObjectURL(audioUrl);
             isAITalking = false; // Reset flag when finished playing
+            try { 
+                speechResolve && speechResolve(); 
+                // Clear the speech promise when TTS completes
+                window.currentSpeechPromise = null;
+            } catch (e) { /* noop */ }
             if (voicemodestatus && !isFormActive) {
                 console.log("Starting recording after audio completion");
                 setTimeout(() => {
@@ -423,6 +461,7 @@ async function playAudioResponse(message, skipDisplay = false, wasInterrupted = 
             console.error("Audio error");
             URL.revokeObjectURL(audioUrl);
             isAITalking = false; // Reset flag on error
+            try { speechResolve && speechResolve(); } catch (e) { /* noop */ }
             if (voicemodestatus && !isFormActive) {
                 console.log('Audio error, restarting recording...');
                 setTimeout(startRecording, 1000);
@@ -802,6 +841,12 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM fully loaded, initializing application...');
     try {
         initializeApp();
+        // Start landing avatar auto-welcome loop
+        try {
+            startLandingWelcomeLoop();
+        } catch (e) {
+            console.error('Landing welcome loop init failed:', e);
+        }
     } catch (error) {
         console.error('Error during initialization:', error);
         // Display error to user if needed
@@ -1101,11 +1146,33 @@ function resetForm() {
 
 // Enhanced message handling for receptionist
 function handleReceptionistResponse(message) {
-    // Check if AI wants to show form
-    if (message.includes('form') || message.includes('complete') || message.includes('information')) {
-        setTimeout(() => {
-            showCheckinForm();
-        }, 1000);
+    // Check if AI wants to show form - use more specific triggers
+    if (message.includes('Please complete') || message.includes('fill out') || 
+        message.includes('Now I\'ll need') || message.includes('registration form') ||
+        message.includes('complete your information')) {
+        
+        console.log('Form trigger detected, waiting for speech to complete...');
+        
+        // Wait for current speech to finish before showing the form with better timing
+        const maybeShowForm = async () => {
+            try {
+                // Wait for current speech promise if it exists
+                if (window.currentSpeechPromise && typeof window.currentSpeechPromise.then === 'function') {
+                    console.log('Waiting for current speech to complete...');
+                    await window.currentSpeechPromise;
+                    console.log('Speech completed, waiting additional buffer time...');
+                    
+                    // Add extra buffer to ensure avatar finishes speaking
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            } catch (e) {
+                console.warn('Error waiting for speech promise:', e);
+            } finally {
+                console.log('Showing form now...');
+                showCheckinForm();
+            }
+        };
+        maybeShowForm();
     }
     
     // Extract name from conversation
@@ -1163,3 +1230,211 @@ function resetConversation() {
 document.addEventListener('DOMContentLoaded', function() {
     initializeReceptionist();
 });
+
+// ========================================
+// LANDING AVATAR AUTO-WELCOME LOOP
+// ========================================
+let landingLoopActive = true;
+const landingWelcomeText = "Welcome to Apeiron Tenerife Center of Excellence. I'm your virtual receptionist. When you're ready, click Start Check-in.";
+
+async function startLandingWelcomeLoop() {
+    const container = document.getElementById('landingAvatarContainer');
+    const video = document.getElementById('landingAvatarVideo');
+    const audio = document.getElementById('landingAvatarAudio');
+    const status = document.getElementById('landingAvatarStatus');
+
+    if (!container || !video || !audio || !status) {
+        console.warn('Landing avatar elements not found; skipping welcome loop');
+        return;
+    }
+
+    console.log('Starting auto-welcome loop with avatar...');
+    status.textContent = 'Preparing avatar...';
+
+    // Initialize avatar module for landing
+    let avatarAvailable = false;
+    if (window.avatarModule) {
+        try {
+            // Configure audio element properly
+            audio.volume = 1.0;
+            audio.muted = false;
+            
+            // Initialize avatar with correct parameter structure
+            const result = await window.avatarModule.initialize({
+                videoEl: video,
+                audioEl: audio,
+                statusEl: status
+            });
+            
+            if (result !== false) {
+                avatarAvailable = true;
+                status.textContent = 'Avatar ready...';
+            } else {
+                throw new Error('Avatar initialization failed');
+            }
+        } catch (e) {
+            console.warn('Avatar init failed on landing; will use TTS fallback:', e);
+            avatarAvailable = false;
+        }
+    }
+
+    let hasSpokenSuccessfully = false;
+
+    const speakWelcome = async () => {
+        if (!landingLoopActive) return;
+        
+        console.log('Starting automatic welcome message...');
+        status.textContent = 'Speaking...';
+        
+        try {
+            // Try avatar first, fallback to TTS if needed
+            let speechSuccessful = false;
+            if (avatarAvailable && window.avatarModule) {
+                console.log('Attempting avatar speech with movement...');
+                try {
+                    await window.avatarModule.speak(landingWelcomeText);
+                    speechSuccessful = true;
+                    console.log('Avatar speech with movement completed');
+                } catch (avatarError) {
+                    console.warn('Avatar failed, trying TTS fallback:', avatarError);
+                }
+            }
+            
+            if (!speechSuccessful) {
+                console.log('Using TTS fallback for landing welcome');
+                await playLandingTTS(landingWelcomeText);
+            }
+            status.textContent = '';
+            
+            // Schedule next welcome in 20 seconds if still active
+            if (landingLoopActive) {
+                setTimeout(speakWelcome, 20000);
+            }
+        } catch (e) {
+            console.error('Landing TTS failed:', e);
+            if (e.message && e.message.includes('play')) {
+                // Likely an autoplay restriction
+                status.textContent = '🔊 Click here to enable audio';
+                status.style.cursor = 'pointer';
+                status.style.color = '#007acc';
+                status.addEventListener('click', async function enableAudio() {
+                    status.removeEventListener('click', enableAudio);
+                    status.style.cursor = 'default';
+                    status.style.color = '';
+                    await speakWelcome();
+                });
+            } else {
+                status.textContent = 'Audio error - will retry in 5 seconds';
+                if (landingLoopActive) {
+                    setTimeout(speakWelcome, 5000);
+                }
+            }
+        }
+    };
+
+    // Watchdog: if no avatar frames within 4s, try re-init once
+    let watchdogTried = false;
+    const watchdog = setTimeout(async () => {
+        if (video && video.readyState < 2 && !watchdogTried && avatarAvailable) {
+            watchdogTried = true;
+            console.log('Avatar watchdog triggered - attempting reconnection...');
+            status.textContent = 'Reconnecting avatar...';
+            try {
+                audio.volume = 1.0;
+                audio.muted = false;
+                
+                const result = await window.avatarModule.initialize({
+                    videoEl: video,
+                    audioEl: audio,
+                    statusEl: status
+                });
+                
+                if (result !== false) {
+                    avatarAvailable = true;
+                    status.textContent = 'Avatar reconnected';
+                } else {
+                    throw new Error('Avatar reconnection failed');
+                }
+            } catch (e) {
+                console.warn('Avatar re-init failed; fallback remains');
+                avatarAvailable = false;
+                status.textContent = 'Using audio fallback';
+            }
+        }
+    }, 4000);
+
+    // Auto-start welcome immediately
+    setTimeout(() => {
+        if (landingLoopActive) {
+            speakWelcome();
+        }
+    }, 2000);
+
+    // Stop loop when user starts chat
+    const startBtn = document.querySelector('.start-chat-btn');
+    startBtn?.addEventListener('click', () => { 
+        landingLoopActive = false; 
+        status.textContent = '';
+    });
+}
+
+async function playLandingTTS(text) {
+    console.log('Requesting TTS for:', text.substring(0, 50) + '...');
+    try {
+        const resp = await fetch('/api/text-to-speech', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+        });
+        
+        console.log('TTS response status:', resp.status);
+        if (!resp.ok) {
+            const errorText = await resp.text();
+            console.error('TTS API error:', errorText);
+            throw new Error(`TTS HTTP error ${resp.status}: ${errorText}`);
+        }
+        
+        const blob = await resp.blob();
+        console.log('TTS blob size:', blob.size, 'bytes');
+        const url = URL.createObjectURL(blob);
+        console.log('TTS blob URL created:', url.substring(0, 50) + '...');
+        
+        const player = new Audio(url);
+        player.volume = 1.0; // Maximum volume
+        player.preload = 'auto';
+        player.autoplay = true; // Force autoplay
+        
+        // Try to play immediately
+        try {
+            await player.play();
+            console.log('TTS auto-play successful');
+        } catch (playError) {
+            console.warn('Auto-play failed, trying manual play:', playError);
+        }
+        
+        await new Promise((resolve, reject) => {
+            player.onended = () => {
+                console.log('TTS playback completed successfully');
+                URL.revokeObjectURL(url);
+                resolve();
+            };
+            player.onerror = (e) => {
+                console.error('TTS playback error:', e);
+                URL.revokeObjectURL(url);
+                reject(new Error('Audio playback failed'));
+            };
+            player.onloadeddata = () => {
+                console.log('TTS audio loaded, attempting playback...');
+                if (player.paused) {
+                    player.play().catch(e => {
+                        console.error('Manual play failed:', e);
+                        reject(e);
+                    });
+                }
+            };
+        });
+    } catch (error) {
+        console.error('TTS playback failed:', error);
+        throw error;
+    }
+}

@@ -32,26 +32,14 @@
         <path d="M4 17v2"/><path d="M5 18H3"/>
    </svg>
       </h1>
-  
-      <p class="landing-description">
-        Welcome to the Apeiron Tenerife Center of Excellence. Our AI-powered virtual receptionist provides seamless visitor registration and professional check-in services.
-        This intelligent assistant streamlines your arrival, connects you with the right team members, and ensures a smooth, welcoming experience.
-        Innovation meets hospitality—your gateway to the Apeiron Tenerife Center of Excellence starts here.
-      </p>
-  
-      <div class="landing-features">
-        <div class="feature">
-          <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M5 13l4 4L19 7"/>
-          </svg>
-          <span>Professional Visitor Registration</span>
-        </div>
-        <div class="feature">
-          <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><path d="M8 15s1.5 2 4 2 4-2 4-2"/>
-          </svg>
-          <span>Apeiron Tenerife Center of Excellence – AI-Powered Reception</span>
-        </div>
+
+      
+
+      <!-- Landing Avatar (auto-welcome) placed below the description -->
+      <div id="landingAvatarContainer" class="avatar-container landing-avatar">
+        <video id="landingAvatarVideo" class="avatar-video" autoplay muted playsinline></video>
+        <audio id="landingAvatarAudio" autoplay preload="auto" volume="1.0"></audio>
+        <div id="landingAvatarStatus" class="avatar-status">Getting ready...</div>
       </div>
   
       <button class="start-chat-btn">
@@ -80,7 +68,7 @@
         <!-- Avatar Video Container -->
         <div id="avatarContainer" class="avatar-container hidden">
           <video id="avatarVideo" class="avatar-video" autoplay></video>
-          <audio id="avatarAudio" autoplay></audio>
+          <audio id="avatarAudio" autoplay preload="auto" volume="1.0"></audio>
           <div id="avatarStatus" class="avatar-status">Connecting to avatar...</div>
         </div>
 

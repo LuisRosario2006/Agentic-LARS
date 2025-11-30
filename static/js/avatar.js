@@ -25,14 +25,14 @@ const AVATAR_CONFIG = {
 /**
  * Initialize avatar system
  */
-async function initializeAvatar() {
+async function initializeAvatar(opts = {}) {
     console.log('Initializing avatar system...');
     
     // Get DOM elements
-    avatarVideoElement = document.getElementById('avatarVideo');
-    avatarAudioElement = document.getElementById('avatarAudio');
-    avatarContainer = document.getElementById('avatarContainer');
-    avatarStatus = document.getElementById('avatarStatus');
+    avatarVideoElement = opts.videoEl || document.getElementById('avatarVideo');
+    avatarAudioElement = opts.audioEl || document.getElementById('avatarAudio');
+    avatarContainer = opts.containerEl || document.getElementById('avatarContainer');
+    avatarStatus = opts.statusEl || document.getElementById('avatarStatus');
     
     if (!avatarVideoElement || !avatarAudioElement) {
         console.error('Avatar video/audio elements not found');
@@ -130,9 +130,12 @@ async function setupPeerConnection(iceData) {
             const iceServers = [];
             
             if (iceData.Urls && iceData.Urls.length > 0) {
-                // Filter to only include TURN URLs
                 const turnUrls = iceData.Urls.filter(url => url.startsWith('turn:'));
-                
+                const stunUrls = iceData.Urls.filter(url => url.startsWith('stun:'));
+
+                if (stunUrls.length > 0) {
+                    iceServers.push({ urls: stunUrls });
+                }
                 if (turnUrls.length > 0) {
                     iceServers.push({
                         urls: turnUrls,
@@ -154,13 +157,24 @@ async function setupPeerConnection(iceData) {
                 console.log('Received track:', event.track.kind);
                 
                 if (event.track.kind === 'video' && avatarVideoElement) {
-                    avatarVideoElement.srcObject = event.streams[0];
+                    const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+                    avatarVideoElement.srcObject = stream;
                     console.log('Video track connected');
                 }
                 
                 if (event.track.kind === 'audio' && avatarAudioElement) {
-                    avatarAudioElement.srcObject = event.streams[0];
+                    const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+                    avatarAudioElement.srcObject = stream;
                     console.log('Audio track connected');
+                }
+            };
+
+            // Fallback: also listen to addstream (older implementations)
+            peerConnection.onaddstream = (event) => {
+                if (event.stream) {
+                    if (avatarVideoElement) avatarVideoElement.srcObject = event.stream;
+                    if (avatarAudioElement) avatarAudioElement.srcObject = event.stream;
+                    console.log('Stream attached via onaddstream');
                 }
             };
             
