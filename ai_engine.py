@@ -1,5 +1,6 @@
 import os
 import time
+import requests
 from io import BytesIO
 import azure.cognitiveservices.speech as speechsdk
 from azure.cognitiveservices.speech import SpeechSynthesizer, SpeechConfig, ResultReason
@@ -17,7 +18,7 @@ client = None
 def configure_speech():
     global speech_config
     try:
-        if AZURE_SPEECH_KEY and AZURE_SPEECH_REGION:
+        if AZURE_SPEECH_KEY and AZURE_SPEECH_REGION and AZURE_SPEECH_KEY != "" and AZURE_SPEECH_REGION != "":
             print(f"Configuring speech with region: {AZURE_SPEECH_REGION}")
             speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
             speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
@@ -27,50 +28,113 @@ def configure_speech():
             print("Speech configuration initialized successfully")
             return True
         else:
-            print("Speech configuration failed - missing key or region")
-            print(f"Key available: {'Yes' if AZURE_SPEECH_KEY else 'No'}")
-            print(f"Region available: {'Yes' if AZURE_SPEECH_REGION else 'No'}")
+            print("Speech features disabled (no Azure Speech configuration)")
+            speech_config = None
             return False
     except Exception as e:
         print(f"Error in speech configuration: {e}")
+        speech_config = None
         return False
 
 conversation_history = [
     {
         "role": "system",
         "content": """
-You are an AI Solution Assessment Assistant designed to guide customers through the Solution Assessment (SA) process. Your primary role is to clearly explain the process and answer initial questions before the Solution Assessment Consultant (SAC) joins.
+You are the virtual receptionist for Apeiron's Tenerife Center of Excellence. You are a professional, warm, and helpful assistant dedicated to providing excellent visitor check-in services at this prestigious innovation center.
 
-You must explain 1 stage at the time once you get confirmation you move to the next one:
-- Discovery: Gathering information about their IT environment (systems, cloud readiness, network details, etc.).
-- Analysis: Using Microsoft tools like Azure Migrate and Dr. Migrate to scan, analyze, and generate insights for cloud optimization.
-- Recommendations: Offering customized strategies for migration, modernization, security, and optimization based on the data.
-- Planning and Decision Support: Helping them create a clear cloud roadmap aligned to their business goals.
+COMPANY INFORMATION:
+- Company: Apeiron
+- Location: Tenerife Center of Excellence
+- Your role: Virtual Reception Assistant
 
-Emphasize:
-- Try to keep your answers concise and to the point so you can allow users to ask more questions
-- The process duration (2–4 weeks, depending on readiness).
-- Data collection steps involving the Azure Migrate Appliance.
-- Outputs (reports accessible through Power BI, no expiration).
+MANDATORY RECEPTION FLOW:
+1. Welcome visitors warmly
+2. Ask for their name
+3. Ask about the purpose of their visit
+4. Guide them to complete the registration form
+5. Confirm successful registration
+6. Provide welcome and next steps
 
-When asked about prerequisites, you must explain:
-- Customers must provide a technical contact with admin access to environments.
-- Allow inbound and outbound network connectivity for appliance deployment.
-- Meet minimum server or appliance requirements (RAM, CPUs, storage).
-- Grant read-only access to vCenter/Hyper-V/physical servers.
-- Ensure necessary ports are open (example: Port 443, Port 3389, WinRM 5985, SSH 22 depending on server type).
+PROFESSIONAL GUIDELINES:
+- Always be warm and welcoming
+- Speak clearly and professionally
+- Use visitor's name when possible
+- Focus only on reception duties
+- Guide visitors through the check-in process
+- Never discuss business matters beyond reception
 
-Important:
-- Answer prerequisites questions briefly but confidently.
-- Do not overpromise, always recommend that the SAC will validate technical details later.
+SAMPLE INTERACTIONS:
+"Hello! Welcome to the Apeiron Tenerife Center of Excellence. I'm your virtual receptionist. May I have your name please?"
+"Thank you, [name]. What brings you to our Center of Excellence today?"
+"Perfect! Please complete the registration form on screen and take a photo when ready."
+"Thank you [name]! You're all set. Someone from our Center of Excellence team will be with you shortly. Welcome!"
 
-Always invite more questions to keep the conversation flowing.
-Keep your tone professional, structured, and friendly.
+IMPORTANT: Stay focused on reception tasks only. Do not discuss presentations, assessments, or technical topics.
+
+   - Start with overview, then details
+   - Emphasize security and data protection
+   - Explain technical concepts clearly
+   - Highlight business value consistently
+   - Reference real-world scenarios
+
+3. Interaction Management:
+   - Pause for questions regularly
+   - Verify understanding of complex topics
+   - Provide detailed answers when needed
+   - Handle technical queries professionally
+
+4. Auto-Advance Protocol:
+   - Complete topic explanation
+   - Verify no pending questions
+   - Confirm understanding
+   - Use [AUTO_ADVANCE] appropriately
+   - Do NOT advance if:
+     * Questions are pending
+     * Complex topic needs clarification
+     * User shows signs of needing more time
+     * Additional explanation is needed
+
+9. TECHNICAL REQUIREMENTS (Slides 46-50):
+   - System specifications
+   - Access requirements
+   - Network configurations
+   - Security prerequisites
+   - Implementation considerations
+
+10. NEXT STEPS AND CLOSING (Slides 51-55):
+    - Action plan outline
+    - Implementation timeline
+    - Documentation handover
+    - Support process
+    - Final Q&A
+
+PRESENTATION GUIDELINES:
+1. Delivery Style:
+   - Maintain professional expertise
+   - Use clear, technical language
+   - Balance detail with understanding
+   - Regular comprehension checks
+   - Encourage questions
+
+2. Slide Navigation:
+   - Use "Let's move to the next slide" for transitions
+   - Add [AUTO_ADVANCE] when section is complete
+   - Pause for questions between sections
+   - Confirm understanding before advancing
+
+3. Key Principles:
+   - Emphasize Microsoft funding
+   - Focus on security and compliance
+   - Highlight business value
+   - Maintain professional authority
+   - Be precise with technical details
+
+
 """
     },
     {
         "role": "assistant",
-        "content": "Hello, I’m your AI-powered assistant, here to guide you through Microsoft’s Solution Assessment process. Whether you need clarity, next steps, or best practices—I'm available anytime to streamline your cloud journey. Shall we get started?"
+        "content": "Hello! Welcome to the Apeiron Tenerife Center of Excellence. I'm your virtual reception assistant. Can you tell me your name to get started?"
     }
 ]
 
@@ -80,33 +144,25 @@ def get_key_vault_client():
     key_vault_url = os.getenv("KEY_VAULT_URL", "https://kv-apeirona312485399456.vault.azure.net/")
     
     try:
-        # Try DefaultAzureCredential first
-        credential = DefaultAzureCredential()
-        # Test the credential
-        token = credential.get_token("https://vault.azure.net/.default")
-        if not token:
-            raise Exception("No token obtained")
-            
+        print("Attempting to connect to Key Vault...")
+        # Try DefaultAzureCredential with shorter timeout
+        from azure.identity import DefaultAzureCredential
+        credential = DefaultAzureCredential(process_timeout=5)
+        
         client = SecretClient(vault_url=key_vault_url, credential=credential)
-        # Test the client with a simple operation
-        list(client.list_properties_of_secrets(max_page_size=1))
-        print("Successfully connected to Key Vault")
-        return client
+        
+        # Quick test - just try to get one specific secret without listing all
+        try:
+            test_secret = client.get_secret("AZURE-SPEECH-KEY")
+            print("Successfully connected to Key Vault")
+            return client
+        except:
+            print("Key Vault connected but no secrets accessible")
+            return client
     
     except Exception as e:
-        print(f"Warning: Failed to connect to Key Vault using DefaultAzureCredential: {str(e)}")
-        try:
-            # Try Azure CLI credential as fallback
-            from azure.identity import AzureCliCredential
-            credential = AzureCliCredential()
-            client = SecretClient(vault_url=key_vault_url, credential=credential)
-            # Test the client
-            list(client.list_properties_of_secrets(max_page_size=1))
-            print("Successfully connected to Key Vault using Azure CLI credential")
-            return client
-        except Exception as cli_error:
-            print(f"Error: Could not connect to Key Vault using Azure CLI credential either: {str(cli_error)}")
-            return None
+        print(f"Info: Key Vault not accessible, using environment variables instead")
+        return None
 
 def get_secret(client, secret_name, default=None):
     """Safely retrieve a secret from Key Vault"""
@@ -127,7 +183,7 @@ kv_client = get_key_vault_client()
 if kv_client:
     print("\nChecking secret values:")
     try:
-        for secret_name in ["OPENAI-API-KEY", "OPENAI-ENDPOINT", "OPENAI-DEPLOYMENT-NAME"]:
+        for secret_name in ["OPENAI-API-KEY", "OPENAI-ENDPOINT", "OPENAI-DEPLOYMENT-NAME", "AZURE-SPEECH-KEY", "AZURE-SPEECH-REGION"]:
             value = get_secret(kv_client, secret_name)
             if value:
                 # Show first/last 4 chars for API keys, full value for non-sensitive data
@@ -184,10 +240,9 @@ if not OPENAI_DEPLOYMENT_NAME:
     missing_openai_config.append("Deployment Name")
 
 if missing_openai_config:
-    error_msg = f"CRITICAL ERROR: Missing required OpenAI configuration: {', '.join(missing_openai_config)}"
-    print(error_msg)
-    print("Application cannot function without OpenAI configuration. Please check Key Vault access or environment variables.")
-    # Set client to None to prevent usage
+    print(f"Info: Running in demo mode - OpenAI configuration not available: {', '.join(missing_openai_config)}")
+    print("AI responses will show demo messages. Configure credentials for full functionality.")
+    # Set client to None to trigger demo mode
     client = None
 
 missing_speech_config = []
@@ -196,9 +251,9 @@ if not AZURE_SPEECH_KEY:
 if not AZURE_SPEECH_REGION:
     missing_speech_config.append("Region")
 
+# Speech configuration check (simplified)
 if missing_speech_config:
-    print(f"Warning: Missing Azure Speech configuration: {', '.join(missing_speech_config)}")
-    print("Speech-to-text and text-to-speech features will be unavailable.")
+    print("Info: Speech services not configured - text-based interaction available")
 
 # Configure OpenAI client
 try:
@@ -242,56 +297,165 @@ def speech_to_text():
         if not speech_config:
             configure_speech()
             if not speech_config:
-                return "ERROR: Speech services not configured"
+                return "Speech recognition disabled - no Azure Speech configuration available"
 
+        # Using Windows API for microphone detection
+        try:
+            import wmi
+            c = wmi.WMI()
+            microphones = c.Win32_SoundDevice()
+            mic_found = False
+            
+            for mic in microphones:
+                if 'microphone' in mic.Name.lower() or 'audio input' in mic.Name.lower():
+                    print(f"Found microphone: {mic.Name}")
+                    mic_found = True
+                    break
+                    
+            if not mic_found:
+                print("No microphone found in system devices")
+                return "ERROR: No microphone detected. Please check your microphone connection and settings."
+                
+            print("Microphone check completed successfully")
+            
+        except Exception as mic_error:
+            print(f"Warning: Could not check microphone using WMI: {mic_error}")
+            # Continue anyway as the microphone might still work
+            
+        # Configure audio input with more detailed error handling
+        try:
+            audio_config = speechsdk.AudioConfig(use_default_microphone=True)
+            if not audio_config:
+                return "ERROR: Could not initialize audio configuration. Please check your microphone settings."
+                
+            speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+            print("Speech recognizer initialized successfully")
+            
+        except Exception as audio_error:
+            print(f"Error configuring audio: {audio_error}")
+            return "ERROR: Could not access the microphone. Please check your browser settings and microphone permissions."
+            
+        # Configurar el reconocimiento de voz con más detalles de diagnóstico
         audio_config = speechsdk.AudioConfig(use_default_microphone=True)
         speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+        
+        # Agregar manejadores de eventos para diagnóstico
+        def handle_recognizing(evt):
+            print(f"RECOGNIZING: {evt}")
+        
+        def handle_recognized(evt):
+            print(f"RECOGNIZED: {evt}")
+        
+        speech_recognizer.recognizing.connect(handle_recognizing)
+        speech_recognizer.recognized.connect(handle_recognized)
 
-        print("Listening...")
+        print("Listening... Please speak now.")
         speech_recognition_result = speech_recognizer.recognize_once()
 
         if speech_recognition_result.reason == speechsdk.ResultReason.RecognizedSpeech:
             recognized_text = speech_recognition_result.text
-            print(f"Recognized: {recognized_text}")
+            print(f"Successfully recognized: {recognized_text}")
             return recognized_text
         elif speech_recognition_result.reason == speechsdk.ResultReason.Canceled:
             cancellation_details = speechsdk.CancellationDetails(speech_recognition_result)
-            print(f"Speech Recognition canceled: {cancellation_details.reason}")
-            print(f"Error details: {cancellation_details.error_details}")
-            return ""
+            error_message = f"Speech Recognition canceled: {cancellation_details.reason}\nError details: {cancellation_details.error_details}"
+            print(error_message)
+            return f"ERROR: {error_message}"
+        elif speech_recognition_result.reason == speechsdk.ResultReason.NoMatch:
+            print("No speech could be recognized. Please check your microphone and try speaking more clearly.")
+            return "ERROR: No speech detected. Please check your microphone and try speaking more clearly."
             
-        print(f"No speech could be recognized: {speech_recognition_result.reason}")
+        print(f"Recognition result: {speech_recognition_result.reason}")
         return ""
             
     except Exception as e:
-        print(f"Error in speech recognition: {str(e)}")
-        return ""
+        error_message = f"Error in speech recognition: {str(e)}"
+        print(error_message)
+        return f"ERROR: {error_message}"
     
     return ""
 
+def process_presentation_command(text):
+    """Process presentation control commands and slide changes"""
+    # Initialize variables
+    import re
+    script_commands = []
+    final_text = text
+
+    # Check for slide change notification
+    slide_change = re.search(r'\[SLIDE_CHANGE:(\d+)\]', text)
+    if slide_change:
+        slide_number = int(slide_change.group(1))
+        conversation_history.append({
+            "role": "system",
+            "content": f"[The presentation is now showing slide {slide_number}. Adapt your next response accordingly.]"
+        })
+        script_commands.append("window.avatarController.forceStop();")
+        script_commands.append("window.presentationController.handleSlideChange();")
+        return f'<script>{" ".join(script_commands)}</script>'
+
+    # Process presentation commands
+    commands = {
+        "Let's move to the next slide": "nextSlide",
+        "Let's go back to the previous slide": "previousSlide"
+    }
+    
+    # Check for specific slide number command
+    slide_number_match = re.search(r"Let's move to slide (\d+)", text)
+    
+    if slide_number_match:
+        slide_number = int(slide_number_match.group(1))
+        script_commands.append("window.avatarController.forceStop();")
+        script_commands.append(f"window.presentationController.goToSlide({slide_number});")
+        final_text = re.sub(r'Let\'s move to slide \d+\.?\s*', '', text).strip()
+    else:
+        for command, action in commands.items():
+            if command.lower() in text.lower():
+                script_commands.append("window.avatarController.forceStop();")
+                script_commands.append(f"window.presentationController.{action}();")
+                final_text = text.replace(command, '').strip()
+                break
+    
+    if script_commands:
+        return f'<script>{" ".join(script_commands)}</script> {final_text}'
+    return final_text
+
 def get_gpt_response(user_text):
     """Get a response from OpenAI's GPT model"""
-
     global conversation_history, client
 
     # Check if client is available
     if not client:
-        error_message = "I'm currently unable to connect to my AI services. Please ensure the system is properly configured with valid credentials."
-        print("ERROR: OpenAI client is not initialized")
+        demo_responses = [
+            "Hello! I'm your virtual receptionist. How can I help you with your visit today?",
+            "Thank you for visiting us. I'm here to assist with your check-in process.",
+            "Welcome! Is there anything I can help you with regarding your visit?",
+            "I'm here to help you register your visit. What brings you here today?"
+        ]
+        import random
+        demo_message = random.choice(demo_responses)
+        print("Info: Responding in demo mode")
         conversation_history.append({"role": "user", "content": user_text})
-        conversation_history.append({"role": "assistant", "content": error_message})
-        return error_message
+        conversation_history.append({"role": "assistant", "content": demo_message})
+        return demo_message
 
-    # Add user input to conversation history
-    conversation_history.append({"role": "user", "content": user_text})
-    
     try:
+        # Add user's message to conversation history
+        conversation_history.append({"role": "user", "content": user_text})
+        
+        # Create the chat completion request
         response = client.chat.completions.create(
             model=OPENAI_DEPLOYMENT_NAME,
             messages=conversation_history
         )
         
         ai_response = response.choices[0].message.content
+        
+        # Remove any existing script tags
+        import re
+        ai_response = re.sub(r'<script>.*?</script>', '', ai_response)
+        
+        # Store in conversation history and return
         conversation_history.append({"role": "assistant", "content": ai_response})
         return ai_response
     except Exception as e:
@@ -308,7 +472,7 @@ def synthesize_speech(text):
         if not speech_config:
             configure_speech()
             if not speech_config:
-                print("Speech configuration is not initialized")
+                print("Speech synthesis disabled - no Azure Speech configuration available")
                 return None
         
         # Configure audio output to file
@@ -356,5 +520,41 @@ def reset_conversation():
     """Reset the conversation to initial state"""
     global conversation_history
     conversation_history = conversation_history[:2]  # Keep system prompt and initial message
+
+def get_avatar_ice_token():
+    """
+    Get ICE server token for avatar WebRTC connection from Azure Speech Service.
+    Returns a dictionary with ICE server configuration.
+    """
+    try:
+        if not AZURE_SPEECH_KEY or not AZURE_SPEECH_REGION or AZURE_SPEECH_KEY == "" or AZURE_SPEECH_REGION == "":
+            print("Avatar service disabled - no Azure Speech configuration available")
+            return None
+        
+        # Construct the endpoint URL for ICE token
+        ice_token_url = f"https://{AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/avatar/relay/token/v1"
+        
+        headers = {
+            "Ocp-Apim-Subscription-Key": AZURE_SPEECH_KEY
+        }
+        
+        print(f"Requesting ICE token from: {ice_token_url}")
+        
+        response = requests.get(ice_token_url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            ice_data = response.json()
+            print("Successfully retrieved ICE token")
+            return ice_data
+        else:
+            print(f"Failed to get ICE token. Status code: {response.status_code}")
+            print(f"Response: {response.text}")
+            return None
+            
+    except Exception as e:
+        print(f"Error getting ICE token: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 # OpenAI connection is already validated during client initialization

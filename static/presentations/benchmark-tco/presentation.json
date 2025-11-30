@@ -1,0 +1,12 @@
+{
+    "title": "Benchmark TCO Solution Assessment",
+    "version": "1.0",
+    "totalSlides": 64,
+    "currentIndex": 0,
+    "slides": Array.from({ length: 64 }, (_, i) => ({
+        "id": i + 1,
+        "title": `Slide ${i + 1}`,
+        "stage": "Presentation",
+        "imageUrl": `images/slide${i + 1}.png`
+    }))
+}
