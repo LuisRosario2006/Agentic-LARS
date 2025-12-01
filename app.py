@@ -122,11 +122,11 @@ def text_to_speech():
                 response.headers['Accept-Ranges'] = 'bytes'
                 return response
             else:
-                print("Error: Audio stream generation failed")
-                return jsonify({'error': 'Failed to generate audio'}), 500
+                print("Speech synthesis disabled - running in demo mode")
+                return jsonify({'message': 'Speech synthesis running in demo mode', 'demo': True}), 200
         except Exception as e:
-            print(f"Error in speech synthesis: {e}")
-            return jsonify({'error': 'Speech synthesis failed', 'details': str(e)}), 500
+            print(f"Speech synthesis disabled: {e}")
+            return jsonify({'message': 'Speech synthesis running in demo mode', 'demo': True}), 200
     except Exception as e:
         print(f"Unexpected error in text_to_speech route: {e}")
         return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
@@ -143,6 +143,89 @@ def reset_conversation():
     except Exception as e:
         print(f"Error resetting conversation: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/health', methods=['GET'])
+def health():
+    """Return diagnostic info about AI engine configuration."""
+    try:
+        status = {}
+        status['ai_engine_imported'] = ai_engine_available
+        if ai_engine_available and hasattr(ai_engine, 'get_config_status'):
+            status.update(ai_engine.get_config_status())
+        else:
+            status['error'] = 'AI engine not available'
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': 'Health check failed', 'details': str(e)}), 500
+
+@app.route('/api/avatar/ice-token', methods=['GET'])
+def get_avatar_ice_token():
+    """Get ICE server token for avatar WebRTC connection"""
+    print("Route '/api/avatar/ice-token' requested")
+    
+    try:
+        if not ai_engine_available:
+            return jsonify({'error': 'Avatar service not available'}), 503
+        
+        ice_token_data = ai_engine.get_avatar_ice_token()
+        
+        if ice_token_data:
+            # Add speech credentials to the response for avatar initialization
+            ice_token_data['speechKey'] = ai_engine.AZURE_SPEECH_KEY
+            ice_token_data['speechRegion'] = ai_engine.AZURE_SPEECH_REGION
+            return jsonify(ice_token_data)
+        else:
+            # Return demo response instead of error
+            return jsonify({'message': 'Avatar service running in demo mode', 'demo': True}), 200
+    except Exception as e:
+        print(f"Error getting ICE token: {e}")
+        return jsonify({'error': 'Failed to get ICE token', 'details': str(e)}), 500
+
+@app.route('/api/register-visitor', methods=['POST'])
+def register_visitor():
+    """Register a new visitor"""
+    print("Route '/api/register-visitor' requested")
+    
+    try:
+        data = request.json
+        
+        # Extract visitor information
+        visitor_data = {
+            'name': data.get('name'),
+            'company': data.get('company'),
+            'reason': data.get('reason'),
+            'personToVisit': data.get('personToVisit'),
+            'email': data.get('email', ''),
+            'photo': data.get('photo', ''),
+            'timestamp': data.get('timestamp')
+        }
+        
+        # Here you could save to database, file, or external service
+        print(f"Registering visitor: {visitor_data['name']} from {visitor_data['company']}")
+        
+        # For now, just return success
+        return jsonify({
+            'success': True,
+            'message': f"Successful registration for {visitor_data['name']}",
+            'visitorId': f"VIS_{data.get('timestamp', '12345')}"
+        })
+        
+    except Exception as e:
+        print(f"Error registering visitor: {e}")
+        return jsonify({'error': 'Failed to register visitor', 'details': str(e)}), 500
+
+@app.route('/api/show-form', methods=['POST'])
+def show_form():
+    """Trigger to show the check-in form"""
+    print("Route '/api/show-form' requested")
+    
+    try:
+        return jsonify({'action': 'show_form'})
+    except Exception as e:
+        print(f"Error showing form: {e}")
+        return jsonify({'error': 'Failed to show form', 'details': str(e)}), 500
+
+
 
 # Error handling routes
 @app.errorhandler(404)

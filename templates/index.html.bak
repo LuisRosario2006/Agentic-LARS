@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentic SA</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- Microsoft Cognitive Services Speech SDK -->
+  <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
+
+</head>
+<body>
+
+    <!-- Landing Screen -->
+<div id="landingScreen" class="landing-container">
+    <div class="landing-card">
+      <div class="icon-wrapper">
+        <!-- MessageCircle Icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
+        </svg>
+      </div>
+  
+      <h1 class="landing-title">
+        Agentic SA – Delivering Your Solution Assessment Experience
+        <svg xmlns="http://www.w3.org/2000/svg" width="35" height="35" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round"
+        class="lucide lucide-sparkles">
+        <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
+        <path d="M20 3v4"/><path d="M22 5h-4"/>
+        <path d="M4 17v2"/><path d="M5 18H3"/>
+   </svg>
+      </h1>
+  
+      <p class="landing-description">
+        Meet your AI-powered guide to Microsoft’s Solution Assessments—a smart, interactive experience designed to explore your IT landscape and recommend 
+        tailored strategies that align with your business goals. 
+        Through a dynamic conversation, the assistant helps you understand the process, 
+        uncover the right assessment for your needs, and prepare for next steps with clarity and confidence.
+      </p>
+  
+      <div class="landing-features">
+        <div class="feature">
+          <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 13l4 4L19 7"/>
+          </svg>
+          <span>Instant, Intelligent Responses</span>
+        </div>
+        <div class="feature">
+          <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><path d="M8 15s1.5 2 4 2 4-2 4-2"/>
+          </svg>
+          <span>Guided by AI — Available in Voice or Text</span>
+        </div>
+      </div>
+  
+      <button class="start-chat-btn">
+        Start Chatting
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+  
+
+
+
+  <!-- Main Screen -->
+  <div id="chatScreen" class="main-container hidden">
+    <!-- Left side: Presentation -->
+    <div class="presentation-side">
+      <div class="presentation-card">
+        <div class="slide-header">
+          <span class="slide-number">Slide 1</span>
+          <span class="stage-indicator">Stage: Discovery</span>
+        </div>
+        <div id="slideContent" class="slide-content">
+          <img src="{{ url_for('static', filename='images/ms-logo.png') }}" alt="Microsoft Logo" class="ms-logo">
+          <h1>Benchmark TCO Solution Assessment</h1>
+          <h2>Introduction and process overview</h2>
+        </div>
+        <div class="slide-controls">
+          <button id="prevSlide" class="slide-btn">&larr; Previous</button>
+          <button id="nextSlide" class="slide-btn">Next &rarr;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right side: Chat and Avatar -->
+    <div class="chat-side">
+      <div class="chat-container">
+        <!-- Header -->
+        <div class="chat-header">
+          <span>&larr;</span> Agentic SA your Solution Assessment Companion
+        </div>
+    
+        <!-- Avatar Video Container -->
+        <div id="avatarContainer" class="avatar-container hidden">
+          <video id="avatarVideo" class="avatar-video" autoplay></video>
+          <audio id="avatarAudio" autoplay></audio>
+          <div id="avatarStatus" class="avatar-status">Connecting to avatar...</div>
+        </div>
+
+        <!-- Messages Area -->
+        <div id="chatMessages" class="chat-messages">
+          <!-- Messages will be dynamically injected here -->
+        </div>
+       
+        <!-- Footer Controls -->
+        <div class="chat-footer">
+          <!-- Toggle Voice/Text Mode -->
+          <button id="modeToggleBtn" class="mode-toggle">
+            <span id="modeIcon">
+              <!-- Icon will be injected here -->
+            </span>        
+            <span id="modeLabel">Voice Mode</span>
+          </button>
+    
+          <!-- Text Input -->
+          <div id="textInputSection" class="input-section hidden">
+            <input id="userInput" type="text" placeholder="Type your message..." />
+            <button id="sendBtn" class="send-btn" disabled>
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-send">
+                <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
+                <path d="m21.854 2.147-10.94 10.939"/>
+              </svg>
+            </button>
+          </div>
+    
+          <!-- Voice Status Area -->
+          <div id="voiceStatus" class="status-section">
+            <div id="recordingStatus" class="status-item hidden">
+              <div class="pulse-icon"></div>
+              <span>AI is listening...</span>
+            </div>
+            <div id="speakingStatus" class="status-item">
+              <span>AI is listening...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  
+  
+
+  <script src="{{ url_for('static', filename='js/presentation.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/avatar.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

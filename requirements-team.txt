@@ -1,3 +1,6 @@
+# Shared requirements for the Apeiron Tenerife virtual receptionist UI
+# Install with: pip install -r requirements-team.txt
+
 flask==3.1.2
 azure-cognitiveservices-speech==1.34.0
 azure-identity==1.15.0
@@ -9,5 +12,4 @@ Werkzeug==3.1.3
 colorama==0.4.6
 certifi>=2024.2.0
 wmi==1.5.1
-# pywin32 306 is not available for Python 3.14; use a compatible version
 pywin32==311
