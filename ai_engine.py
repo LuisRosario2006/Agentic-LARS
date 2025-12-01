@@ -5,10 +5,17 @@ from io import BytesIO
 import azure.cognitiveservices.speech as speechsdk
 from azure.cognitiveservices.speech import SpeechSynthesizer, SpeechConfig, ResultReason
 from azure.cognitiveservices.speech.audio import AudioOutputConfig
+from dotenv import load_dotenv
 import openai
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
-import os
+
+# Load local environment variables early for developer machines
+try:
+    load_dotenv()
+    print("Loaded .env variables")
+except Exception as _e:
+    print(f"Could not load .env file: {_e}")
 # Global variables
 speech_config = None
 synthesizer = None
@@ -176,7 +183,17 @@ def get_secret(client, secret_name, default=None):
         print(f"Error retrieving secret {secret_name}: {str(e)}")
         return default
 
-# Initialize Key Vault client
+def prefer_env_then_vault(secret_name_env, secret_name_vault=None):
+    """Return value prioritizing explicit environment variable, then Key Vault, else None."""
+    secret_name_vault = secret_name_vault or secret_name_env.replace('_', '-')
+    env_val = os.getenv(secret_name_env)
+    if env_val:
+        return env_val
+    if kv_client:
+        return get_secret(kv_client, secret_name_vault)
+    return None
+
+# Initialize Key Vault client (best-effort; local dev may not have identity)
 kv_client = get_key_vault_client()
 
 # List all available secrets and their values (safely)
@@ -197,12 +214,12 @@ if kv_client:
         print(f"Error checking secrets: {str(e)}")
     print("\n")
 
-# Retrieve API Keys from Key Vault with fallback to environment variables
-AZURE_SPEECH_KEY = get_secret(kv_client, "AZURE-SPEECH-KEY") or os.getenv("AZURE_SPEECH_KEY")
-AZURE_SPEECH_REGION = get_secret(kv_client, "AZURE-SPEECH-REGION") or os.getenv("AZURE_SPEECH_REGION")
-OPENAI_API_KEY = get_secret(kv_client, "OPENAI-API-KEY") or os.getenv("OPENAI_API_KEY")
-OPENAI_ENDPOINT = get_secret(kv_client, "OPENAI-ENDPOINT") or os.getenv("OPENAI_ENDPOINT")
-OPENAI_DEPLOYMENT_NAME = get_secret(kv_client, "OPENAI-DEPLOYMENT-NAME") or os.getenv("OPENAI_DEPLOYMENT_NAME")
+# Retrieve configuration values (env first, then Key Vault)
+AZURE_SPEECH_KEY = prefer_env_then_vault("AZURE_SPEECH_KEY", "AZURE-SPEECH-KEY")
+AZURE_SPEECH_REGION = prefer_env_then_vault("AZURE_SPEECH_REGION", "AZURE-SPEECH-REGION")
+OPENAI_API_KEY = prefer_env_then_vault("OPENAI_API_KEY", "OPENAI-API-KEY")
+OPENAI_ENDPOINT = prefer_env_then_vault("OPENAI_ENDPOINT", "OPENAI-ENDPOINT")
+OPENAI_DEPLOYMENT_NAME = prefer_env_then_vault("OPENAI_DEPLOYMENT_NAME", "OPENAI-DEPLOYMENT-NAME")
 
 # Set environment variables for OpenAI client
 if OPENAI_API_KEY:
@@ -423,9 +440,41 @@ def process_presentation_command(text):
 def get_gpt_response(user_text):
     """Get a response from OpenAI's GPT model"""
     global conversation_history, client
+    # If official client failed to init but config present, try REST fallback
+    def rest_fallback(messages):
+        try:
+            if not (OPENAI_API_KEY and OPENAI_ENDPOINT and OPENAI_DEPLOYMENT_NAME):
+                return None
+            # Use provided full endpoint (already includes deployment & api-version)
+            url = OPENAI_ENDPOINT
+            headers = {
+                'api-key': OPENAI_API_KEY,
+                'Content-Type': 'application/json'
+            }
+            payload = {
+                'messages': messages,
+                'temperature': 0.7
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                if 'choices' in data and data['choices']:
+                    return data['choices'][0]['message']['content']
+            else:
+                print(f"REST fallback non-200: {resp.status_code} {resp.text[:200]}")
+            return None
+        except Exception as e:
+            print(f"REST fallback error: {e}")
+            return None
 
-    # Check if client is available
     if not client:
+        # Attempt REST call before demo
+        conversation_history.append({"role": "user", "content": user_text})
+        ai_text = rest_fallback(conversation_history)
+        if ai_text:
+            conversation_history.append({"role": "assistant", "content": ai_text})
+            return ai_text
+        # Demo fallback
         demo_responses = [
             "Hello! I'm your virtual receptionist. How can I help you with your visit today?",
             "Thank you for visiting us. I'm here to assist with your check-in process.",
@@ -434,8 +483,7 @@ def get_gpt_response(user_text):
         ]
         import random
         demo_message = random.choice(demo_responses)
-        print("Info: Responding in demo mode")
-        conversation_history.append({"role": "user", "content": user_text})
+        print("Info: Responding in demo mode (REST unavailable)")
         conversation_history.append({"role": "assistant", "content": demo_message})
         return demo_message
 
@@ -519,7 +567,30 @@ def synthesize_speech(text):
 def reset_conversation():
     """Reset the conversation to initial state"""
     global conversation_history
-    conversation_history = conversation_history[:2]  # Keep system prompt and initial message
+    conversation_history = conversation_history[:2]
+
+def get_config_status():
+    """Return a diagnostic dict indicating current config and modes."""
+    return {
+        "openai_configured": bool(client),
+        "speech_configured": bool(speech_config),
+        "missing_openai": [
+            name for name, val in {
+                "OPENAI_API_KEY": OPENAI_API_KEY,
+                "OPENAI_ENDPOINT": OPENAI_ENDPOINT,
+                "OPENAI_DEPLOYMENT_NAME": OPENAI_DEPLOYMENT_NAME
+            }.items() if not val
+        ],
+        "missing_speech": [
+            name for name, val in {
+                "AZURE_SPEECH_KEY": AZURE_SPEECH_KEY,
+                "AZURE_SPEECH_REGION": AZURE_SPEECH_REGION
+            }.items() if not val
+        ],
+        "base_endpoint": base_endpoint,
+        "api_version": api_version,
+        "demo_mode": client is None,
+    }
 
 def get_avatar_ice_token():
     """

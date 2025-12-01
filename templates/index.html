@@ -12,54 +12,37 @@
 <body>
 
     <!-- Landing Screen -->
-<div id="landingScreen" class="landing-container">
-    <div class="landing-card">
-      <div class="icon-wrapper">
-        <!-- MessageCircle Icon -->
-        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>
-        </svg>
-      </div>
-  
-      <h1 class="landing-title">
-        Welcome to Apeiron Tenerife – Center of Excellence Reception
-        <svg xmlns="http://www.w3.org/2000/svg" width="35" height="35" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round"
-        class="lucide lucide-sparkles">
-        <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
-        <path d="M20 3v4"/><path d="M22 5h-4"/>
-        <path d="M4 17v2"/><path d="M5 18H3"/>
-   </svg>
-      </h1>
-  
-      <p class="landing-description">
-        Welcome to the Apeiron Tenerife Center of Excellence. Our AI-powered virtual receptionist provides seamless visitor registration and professional check-in services.
-        This intelligent assistant streamlines your arrival, connects you with the right team members, and ensures a smooth, welcoming experience.
-        Innovation meets hospitality—your gateway to the Apeiron Tenerife Center of Excellence starts here.
-      </p>
-  
-      <div class="landing-features">
-        <div class="feature">
-          <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M5 13l4 4L19 7"/>
-          </svg>
-          <span>Professional Visitor Registration</span>
-        </div>
-        <div class="feature">
-          <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><path d="M8 15s1.5 2 4 2 4-2 4-2"/>
-          </svg>
-          <span>Apeiron Tenerife Center of Excellence – AI-Powered Reception</span>
-        </div>
-      </div>
-  
-      <button class="start-chat-btn">
-        Start Check-in
+<div id="landingScreen" class="landing-hero">
+  <div class="hero-inner">
+    <p class="hero-kicker">APEIRON TENERIFE – CENTER OF EXCELLENCE</p>
+    <h1 class="hero-title">Welcome to the Apeiron Tenerife – Center of Excellence Reception</h1>
+    <p class="hero-description">
+      Our AI-powered virtual receptionist ensures fast visitor registration, professional check-in, and a direct connection
+      with the right team members. Begin your experience with clarity, innovation, and a warm welcome.
+    </p>
+
+    <div class="hero-cta">
+      <button class="start-chat-btn hero-btn-primary" type="button" onclick="if(window.startApp){ window.startApp(); }">
+        Let's Start
         <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M5 12h14M12 5l7 7-7 7"/>
         </svg>
       </button>
+    </div>
+
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3>Real-time</h3>
+        <p>Avatar guidance keeps every step conversational and clear.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Secure</h3>
+        <p>Captured data is confirmed with you before it is stored.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Hybrid</h3>
+        <p>Voice capture adapts to every environment while remaining reliable.</p>
+      </div>
     </div>
   </div>
 </div>
@@ -69,143 +52,164 @@
 
   <!-- Main Screen -->
   <div id="chatScreen" class="main-container hidden">
-    <!-- Full width Chat Container -->
-    <div class="chat-side-full">
-      <div class="chat-container">
-        <!-- Header -->
-        <div class="chat-header">
-          <span>&larr;</span> Apeiron Tenerife Center of Excellence Reception
-        </div>
-    
-        <!-- Avatar Video Container -->
-        <div id="avatarContainer" class="avatar-container hidden">
-          <video id="avatarVideo" class="avatar-video" autoplay></video>
-          <audio id="avatarAudio" autoplay></audio>
-          <div id="avatarStatus" class="avatar-status">Connecting to avatar...</div>
-        </div>
-
-        <!-- Messages Area -->
-        <div id="chatMessages" class="chat-messages">
-          <!-- Messages will be dynamically injected here -->
-        </div>
-       
-        <!-- Footer Controls -->
-        <div class="chat-footer">
-          <!-- Toggle Voice/Text Mode -->
-          <button id="modeToggleBtn" class="mode-toggle">
-            <span id="modeIcon">
-              <!-- Icon will be injected here -->
-            </span>        
-            <span id="modeLabel">Voice Mode</span>
-          </button>
-    
-          <!-- Text Input -->
-          <div id="textInputSection" class="input-section hidden">
-            <input id="userInput" type="text" placeholder="Type your message..." />
-            <button id="sendBtn" class="send-btn" disabled>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-send">
-                <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
-                <path d="m21.854 2.147-10.94 10.939"/>
-              </svg>
-            </button>
+    <div class="reception-wrapper">
+      <div class="reception-panels">
+        <section class="panel-card avatar-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-eyebrow">Virtual Receptionist</p>
+              <h2>Avatar guidance</h2>
+            </div>
+            <button class="outline-btn" type="button" disabled>Summarize details</button>
           </div>
-    
-          <!-- Voice Status Area -->
-          <div id="voiceStatus" class="status-section">
-            <div id="recordingStatus" class="status-item hidden">
-              <div class="pulse-icon"></div>
-              <span>AI is listening...</span>
+
+          <p class="panel-description">
+            The avatar will guide each question and capture answers automatically. If background noise prevents accurate recognition,
+            you can switch to text entry on the right-hand panel without pausing the visit.
+          </p>
+
+          <div class="avatar-chat-split">
+            <div class="avatar-card">
+              <div class="avatar-visual">
+                <div id="avatarContainer" class="avatar-container hidden">
+                  <video id="avatarVideo" class="avatar-video" autoplay></video>
+                  <audio id="avatarAudio" autoplay></audio>
+                  <div id="avatarStatus" class="avatar-status">Connecting to avatar...</div>
+                </div>
+              </div>
             </div>
-            <div id="speakingStatus" class="status-item">
-              <span>AI is listening...</span>
+
+            <div class="chat-card">
+              <div class="chat-feed">
+                <div id="chatMessages" class="chat-messages"></div>
+                <div class="chat-footer">
+                  <div id="textInputSection" class="input-section">
+                    <input id="userInput" type="text" placeholder="Type your message..." />
+                    <button id="sendBtn" class="send-btn" disabled>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-send">
+                        <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/>
+                        <path d="m21.854 2.147-10.94 10.939"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <div id="voiceStatus" class="status-section">
+                    <div id="recordingStatus" class="status-item hidden">
+                      <div class="pulse-icon"></div>
+                      <span>AI is listening...</span>
+                    </div>
+                    <div id="speakingStatus" class="status-item">
+                      <span>AI is speaking...</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
+        </section>
+
+        <div id="checkinForm" class="checkin-modal hidden">
+          <div class="checkin-dialog">
+            <section class="panel-card identity-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="panel-eyebrow">Visitor identity</p>
+                  <h2>Photograph capture</h2>
+                </div>
+                <button type="button" id="cancelForm" class="modal-close" aria-label="Close form">×</button>
+              </div>
+              <p class="panel-description">
+                Photographs are stored securely with your visit record and are cleared automatically once the registration resets.
+              </p>
+
+              <div class="capture-card">
+                <div id="cameraContainer" class="camera-container">
+                  <video id="cameraVideo" class="camera-video" autoplay></video>
+                  <canvas id="photoCanvas" class="photo-canvas hidden"></canvas>
+                  <div id="photoPreview" class="photo-preview hidden">
+                    <img id="capturedPhoto" alt="Captured photo">
+                  </div>
+                </div>
+                <div class="camera-controls">
+                  <button type="button" id="startCamera" class="camera-btn">Activate webcam</button>
+                  <button type="button" id="takePhoto" class="camera-btn hidden">Capture</button>
+                  <button type="button" id="retakePhoto" class="camera-btn hidden">Retake</button>
+                </div>
+              </div>
+
+              <form id="visitorForm" class="visitor-form">
+                <div class="form-column">
+                  <label for="visitorName">Name</label>
+                  <input type="text" id="visitorName" name="name" required>
+                </div>
+                <div class="form-column">
+                  <label for="visitorCompany">Company or Department</label>
+                  <input type="text" id="visitorCompany" name="company" required>
+                </div>
+                <div class="form-column">
+                  <label for="visitorType">Visitor</label>
+                  <select id="visitorType" name="visitorType" required>
+                    <option value="partner" selected>Partner</option>
+                    <option value="microsoft">Microsoft</option>
+                    <option value="other">Others</option>
+                  </select>
+                </div>
+                <div class="form-column">
+                  <label for="visitReason">Reason for visit</label>
+                  <select id="visitReason" name="reason" required>
+                    <option value="">Select an option</option>
+                    <option value="meeting">Meeting</option>
+                    <option value="interview">Interview</option>
+                    <option value="delivery">Document Delivery</option>
+                    <option value="training">Training</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div class="form-column">
+                  <label for="personToVisit">Person to visit</label>
+                  <input type="text" id="personToVisit" name="personToVisit" required>
+                </div>
+                <div class="form-column">
+                  <label for="visitorEmail">Email (optional)</label>
+                  <input type="email" id="visitorEmail" name="email">
+                </div>
+
+                <div class="form-actions">
+                  <button type="button" id="cancelFormSecondary" class="btn-secondary">Cancel</button>
+                  <button type="submit" id="submitForm" class="btn-primary" disabled>Submit</button>
+                </div>
+              </form>
+            </section>
           </div>
         </div>
       </div>
 
-      <!-- Check-in Form (Hidden initially) -->
-      <div id="checkinForm" class="checkin-form hidden">
-        <div class="form-card">
-          <div class="form-header">
-            <h2>Visitor Registration</h2>
-            <p>Please complete your information for check-in</p>
-          </div>
-          
-          <form id="visitorForm" class="visitor-form">
-            <div class="form-row">
-              <div class="form-group">
-                <label for="visitorName">Full Name</label>
-                <input type="text" id="visitorName" name="name" required>
-              </div>
-              <div class="form-group">
-                <label for="visitorCompany">Company</label>
-                <input type="text" id="visitorCompany" name="company" required>
-              </div>
-            </div>
-            
-            <div class="form-row">
-              <div class="form-group">
-                <label for="visitReason">Reason for Visit</label>
-                <select id="visitReason" name="reason" required>
-                  <option value="">Select an option</option>
-                  <option value="meeting">Meeting</option>
-                  <option value="interview">Interview</option>
-                  <option value="delivery">Document Delivery</option>
-                  <option value="training">Training</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="personToVisit">Person to Visit</label>
-                <input type="text" id="personToVisit" name="personToVisit" required>
-              </div>
-            </div>
-            
-            <div class="form-group">
-              <label for="visitorEmail">Email (Optional)</label>
-              <input type="email" id="visitorEmail" name="email">
-            </div>
+    </div>
+  </div>
 
-            <!-- Photo Capture Section -->
-            <div class="photo-section">
-              <label>Photograph</label>
-              <div id="cameraContainer" class="camera-container">
-                <video id="cameraVideo" class="camera-video" autoplay></video>
-                <canvas id="photoCanvas" class="photo-canvas hidden"></canvas>
-                <div id="photoPreview" class="photo-preview hidden">
-                  <img id="capturedPhoto" alt="Captured photo">
-                </div>
-              </div>
-              <div class="camera-controls">
-                <button type="button" id="startCamera" class="camera-btn">
-                  📷 Start Camera
-                </button>
-                <button type="button" id="takePhoto" class="camera-btn hidden">
-                  📸 Take Photo
-                </button>
-                <button type="button" id="retakePhoto" class="camera-btn hidden">
-                  🔄 Retake Photo
-                </button>
-              </div>
-            </div>
-
-            <!-- Form Actions -->
-            <div class="form-actions">
-              <button type="button" id="cancelForm" class="btn-secondary">
-                Cancel
-              </button>
-              <button type="submit" id="submitForm" class="btn-primary" disabled>
-                Complete Check-in
-              </button>
-            </div>
-          </form>
+  <div id="visitSummaryOverlay" class="summary-modal hidden">
+    <div class="summary-dialog">
+      <p class="panel-eyebrow">Confirmation</p>
+      <h2>Visit summary</h2>
+      <div class="summary-grid">
+        <div class="summary-item">
+          <p class="summary-label">Name</p>
+          <p class="summary-value" data-summary="name">—</p>
+        </div>
+        <div class="summary-item">
+          <p class="summary-label">Company or Department</p>
+          <p class="summary-value" data-summary="company">—</p>
+        </div>
+        <div class="summary-item">
+          <p class="summary-label">Visitor</p>
+          <p class="summary-value" data-summary="type">—</p>
+        </div>
+        <div class="summary-item">
+          <p class="summary-label">Reason for visit</p>
+          <p class="summary-value" data-summary="reason">—</p>
         </div>
       </div>
     </div>
   </div>
-
-  
-  
 
   <script src="{{ url_for('static', filename='js/avatar.js') }}"></script>
   <script src="{{ url_for('static', filename='js/script.js') }}"></script>

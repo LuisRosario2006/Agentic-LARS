@@ -144,6 +144,20 @@ def reset_conversation():
         print(f"Error resetting conversation: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/health', methods=['GET'])
+def health():
+    """Return diagnostic info about AI engine configuration."""
+    try:
+        status = {}
+        status['ai_engine_imported'] = ai_engine_available
+        if ai_engine_available and hasattr(ai_engine, 'get_config_status'):
+            status.update(ai_engine.get_config_status())
+        else:
+            status['error'] = 'AI engine not available'
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': 'Health check failed', 'details': str(e)}), 500
+
 @app.route('/api/avatar/ice-token', methods=['GET'])
 def get_avatar_ice_token():
     """Get ICE server token for avatar WebRTC connection"""

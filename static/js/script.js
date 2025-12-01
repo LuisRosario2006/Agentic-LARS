@@ -11,9 +11,11 @@ let chatMessages = null;
 let startChatBtn = null;
 let landingScreen = null;
 let chatScreen = null;
+let chatInitialized = false;
 
 // 🔹 Global Variables
-let voicemodestatus = true;
+// Force text-only mode (no speech-to-text). User types; bot speaks via TTS.
+let voicemodestatus = false;
 let audioPlayer = null;
 let isMuted = false;
 let isAITalking = false;
@@ -25,8 +27,12 @@ function initializeApp() {
     // Initialize DOM elements
     initializeDOMElements();
     
-    // Initialize Voice Recognition
-    initializeVoiceRecognition();
+    // Skip voice recognition when in forced text-only mode
+    if (voicemodestatus) {
+        initializeVoiceRecognition();
+    } else {
+        console.log('Text-only mode: voice recognition initialization skipped');
+    }
     
     // Set up all event listeners
     setupEventListeners();
@@ -59,14 +65,21 @@ function setupEventListeners() {
     
     // Chat start button
     if (startChatBtn) {
-        startChatBtn.addEventListener('click', () => {
-            console.log('Start chat button clicked');
-            showChatScreen().catch(error => {
-                console.error('Error showing chat screen:', error);
-                displayMessage(error.message, 'system');
-            });
-        });
+        // Ensure button is enabled and clickable
+        startChatBtn.removeAttribute('disabled');
+        startChatBtn.style.pointerEvents = 'auto';
+        startChatBtn.addEventListener('click', handleStartChatClick);
+        window.startApp = handleStartChatClick;
+    } else {
+        console.error('Start chat button not found in DOM');
     }
+
+    // Global delegation fallback
+    document.addEventListener('click', (event) => {
+        if (event.target && event.target.closest && event.target.closest('.start-chat-btn')) {
+            handleStartChatClick(event);
+        }
+    });
     
     // Mode toggle button
     if (modeToggleBtn) {
@@ -95,6 +108,14 @@ function setupEventListeners() {
     }
     
     console.log('Event listeners set up successfully');
+}
+
+// Toggle voice/text mode (text-only demo keeps voice disabled)
+function toggleMode(event) {
+    if (event) {
+        event.preventDefault();
+    }
+    displayMessage('Este asistente está en modo texto únicamente. Por favor escribe tu mensaje.', 'system');
 }
 
 // Initialize Voice Recognition and WebSpeech variables
@@ -205,22 +226,17 @@ function processUserInput(message) {
 }
 
 function startConversation() {
-    console.log("Starting conversation...");
+    console.log("Starting conversation (text-only)...");
     return fetch('/api/start-conversation')
-        .then(response => response.json())
+        .then(r => r.json())
         .then(data => {
-            console.log("Got initial message:", data.message);
-            // First display the message
-            displayMessage(data.message, 'assistant');
-            
-            // Play audio response immediately regardless of voice mode
-            // Pass true to skip displaying the message again
-            playAudioResponse(data.message, true);
+            if (data.message) {
+                displayMessage(data.message, 'assistant');
+                // Speak greeting
+                playAudioResponse(data.message, true);
+            }
         })
-        .catch(error => {
-            console.error('Error starting conversation:', error);
-            displayMessage("Sorry, there was a problem starting the conversation. Please refresh the page.", 'system');
-        });
+        .catch(err => console.error('Start conversation error:', err));
 }
 
 
@@ -251,18 +267,27 @@ async function showChatScreen() {
             }
         }
 
-        // Start the conversation immediately
+        // Immediate greeting (no voice recognition)
         await startConversation();
-        
-        // Set up UI for voice mode
-        modeToggleBtn.classList.toggle("toggled", !voicemodestatus);
-        modeLabel.textContent = "Voice Mode";
-        modeIcon.innerHTML = "";
-        const iconSvg = createModeIcon(false);
-        modeIcon.appendChild(iconSvg);
-        
-        // Hide text input in voice mode
-        inputSection.classList.toggle("hidden", voicemodestatus);
+        voicemodestatus = false;
+
+        if (modeToggleBtn && modeLabel && modeIcon && inputSection) {
+            modeToggleBtn.classList.add('toggled');
+            modeLabel.textContent = 'Text Mode';
+            inputSection.classList.remove('hidden');
+            
+            // Set up UI for voice mode (even though we stay in text mode, keep state synced)
+            modeToggleBtn.classList.toggle("toggled", !voicemodestatus);
+            modeLabel.textContent = "Voice Mode";
+            modeIcon.innerHTML = "";
+            const iconSvg = createModeIcon(false);
+            modeIcon.appendChild(iconSvg);
+            
+            // Hide text input in voice mode
+            inputSection.classList.toggle("hidden", voicemodestatus);
+        } else {
+            console.warn('Mode toggle UI elements not found; skipping toggle state updates');
+        }
         
         console.log('Chat screen initialized successfully');
         
@@ -275,382 +300,193 @@ async function showChatScreen() {
 // Play Audio Response (Text-to-Speech)
 async function playAudioResponse(message, skipDisplay = false, wasInterrupted = false) {
     console.log('playAudioResponse called, wasInterrupted:', wasInterrupted, 'voicemodestatus:', voicemodestatus);
-    
-    if (!message) {
-        console.error('No message to play');
-        // Force restart recording if needed
-        if (voicemodestatus) {
-            console.log('No message, restarting recording...');
-            setTimeout(startRecording, 1000);
-        }
-        return;
-    }
 
-    // Display the message only if skipDisplay is false
-    if (!skipDisplay) {
-        displayMessage(message, 'assistant');
-        
-        // Handle receptionist responses
-        handleReceptionistResponse(message);
-    }
-
-    // Clean message for TTS (remove script tags)
-    const cleanMessage = message.replace(/<script>.*?<\/script>/g, '').trim();
-    if (!cleanMessage) {
-        console.log('No text content to speak after removing scripts, restarting recording...');
-        if (voicemodestatus) {
-            setTimeout(startRecording, 1000);
-        }
-        return;
-    }
-
-    console.log('Requesting text-to-speech for message:', cleanMessage);
-    showTypingIndicator("assistant");
-
-    // Try to use avatar if available
-    if (window.avatarModule && window.avatarModule.isAvailable()) {
-        console.log('Using avatar for speech synthesis, wasInterrupted:', wasInterrupted);
-        try {
-            // If we were interrupted, give a bit more time for cleanup
-            const delay = wasInterrupted ? 300 : 100;
-            await new Promise(resolve => setTimeout(resolve, delay));
-            
-            const success = await window.avatarModule.speak(cleanMessage);
-            hideTypingIndicator();
-            
-            if (success) {
-                console.log('Avatar speech completed successfully, voicemodestatus:', voicemodestatus, 'isFormActive:', isFormActive);
-                // Always restart recording after avatar speech if in voice mode and form is not active
-                if (voicemodestatus && !isFormActive) {
-                    console.log('Scheduling recording restart after avatar speech');
-                    setTimeout(() => {
-                        console.log('Executing scheduled recording restart...');
-                        startRecording();
-                    }, 1000);
-                } else if (isFormActive) {
-                    console.log('Form is active, not restarting recording after avatar speech');
-                }
-                return;
-            } else {
-                console.log('Avatar speech failed, falling back to standard TTS');
-            }
-        } catch (error) {
-            console.error('Avatar speech error, falling back to standard TTS:', error);
-        }
-    }
-
-    // Fallback to standard TTS if avatar is not available or failed
-    fetch('/api/text-to-speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: cleanMessage })
-    })
-    .then(response => {
-        console.log('TTS response status:', response.status);
-        console.log('TTS response headers:', response.headers);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.blob();
-    })
-    .then(audioBlob => {
-        console.log('Received audio blob:', audioBlob.type, audioBlob.size, 'bytes');
-        hideTypingIndicator();
-  
-        // Create audio URL
-        const audioUrl = URL.createObjectURL(audioBlob);
-  
-        // Clean up old audio player if it exists
-        if (audioPlayer) {
-            audioPlayer.pause();
-            audioPlayer.remove();
-            URL.revokeObjectURL(audioPlayer.src);
-        }
-  
-        // Create new audio player
-        audioPlayer = new Audio(audioUrl);
-        audioPlayer.volume = isMuted ? 0 : 1;
-        isAITalking = true; // Set flag when starting playback
-        
-        console.log('Created new audio player');
-        
-        // Play audio when ready
-        audioPlayer.oncanplaythrough = () => {
-            console.log('Audio can play through, attempting to play...');
-            audioPlayer.play()
-                .then(() => {
-                    console.log("Audio playing successfully");
-                    // Detenemos cualquier reconocimiento de voz activo mientras reproducimos
-                    if (recognition) {
-                        recognition.abort();
-                    }
-                })
-                .catch(error => {
-                    console.error("Error playing audio:", error);
-                    isAITalking = false; // Reset flag on error
-                    // Intentar reproducir nuevamente después de una interacción del usuario
-                    displayMessage("Click anywhere to activate audio", 'system');
-                    document.body.addEventListener('click', function playAudioOnce() {
-                        audioPlayer.play().catch(console.error);
-                        document.body.removeEventListener('click', playAudioOnce);
-                    });
-                });
-        };
-  
-        // Handle audio completion
-        audioPlayer.onended = () => {
-            console.log("Audio finished playing");
-            URL.revokeObjectURL(audioUrl);
-            isAITalking = false; // Reset flag when finished playing
+    return new Promise(async (resolve) => {
+        let playbackResolved = false;
+        const restartRecordingIfNeeded = () => {
             if (voicemodestatus && !isFormActive) {
-                console.log("Starting recording after audio completion");
+                console.log('Starting recording after audio completion');
                 setTimeout(() => {
-                    console.log("Attempting to restart recording...");
+                    console.log('Attempting to restart recording...');
                     startRecording();
                 }, 1000);
             } else if (isFormActive) {
-                console.log("Form is active, not restarting recording after audio");
+                console.log('Form is active, not restarting recording after audio');
             }
         };
-        
-        // Add progress monitoring
-        audioPlayer.ontimeupdate = () => {
-            console.log(`Audio playback progress: ${audioPlayer.currentTime}/${audioPlayer.duration} seconds`);
-        };
-        
-        // Handle audio errors
-        audioPlayer.onerror = () => {
-            console.error("Audio error");
-            URL.revokeObjectURL(audioUrl);
-            isAITalking = false; // Reset flag on error
-            if (voicemodestatus && !isFormActive) {
-                console.log('Audio error, restarting recording...');
-                setTimeout(startRecording, 1000);
-            } else if (isFormActive) {
-                console.log('Audio error but form is active, not restarting recording');
+
+        const conclude = () => {
+            if (playbackResolved) {
+                return;
             }
+            playbackResolved = true;
+            restartRecordingIfNeeded();
+            resolve();
         };
-        
-        // Add a timeout fallback to ensure recording always restarts
-        const audioTimeout = setTimeout(() => {
-            console.log('Audio timeout fallback triggered');
-            if (voicemodestatus && !isAITalking && !isFormActive) {
-                console.log('Fallback: restarting recording due to timeout');
-                startRecording();
-            } else if (isFormActive) {
-                console.log('Timeout fallback but form is active, not restarting recording');
+
+        if (!message) {
+            console.error('No message to play');
+            restartRecordingIfNeeded();
+            resolve();
+            return;
+        }
+
+        // Display the message only if skipDisplay is false
+        if (!skipDisplay) {
+            displayMessage(message, 'assistant');
+            handleReceptionistResponse(message);
+        }
+
+        const cleanMessage = message.replace(/<script>.*?<\/script>/g, '').trim();
+        if (!cleanMessage) {
+            console.log('No text content to speak after removing scripts');
+            restartRecordingIfNeeded();
+            resolve();
+            return;
+        }
+
+        console.log('Requesting text-to-speech for message:', cleanMessage);
+        showTypingIndicator('assistant');
+
+        // Try avatar first
+        if (window.avatarModule && window.avatarModule.isAvailable()) {
+            console.log('Using avatar for speech synthesis, wasInterrupted:', wasInterrupted);
+            try {
+                const delay = wasInterrupted ? 300 : 100;
+                await new Promise(r => setTimeout(r, delay));
+                const success = await window.avatarModule.speak(cleanMessage);
+                hideTypingIndicator();
+
+                if (success) {
+                    console.log('Avatar speech completed successfully');
+                    restartRecordingIfNeeded();
+                    resolve();
+                    return;
+                }
+
+                console.log('Avatar speech failed, falling back to standard TTS');
+            } catch (error) {
+                hideTypingIndicator();
+                console.error('Avatar speech error, falling back to standard TTS:', error);
             }
-        }, 30000); // 30 second fallback
-        
-        // Clear timeout when audio ends normally
-        const originalOnended = audioPlayer.onended;
-        audioPlayer.onended = () => {
-            clearTimeout(audioTimeout);
-            originalOnended();
-        };
-    })
-    .catch(error => {
-        console.error('Error in text-to-speech:', error);
-        hideTypingIndicator();
-        displayMessage("Lo siento, hubo un problema generando el audio.", 'assistant');
-        if (voicemodestatus && !isFormActive) {
-            console.log('TTS error, forcing recording restart...');
-            setTimeout(() => {
-                console.log('Executing TTS error recovery...');
-                startRecording();
-            }, 1000);
-        } else if (isFormActive) {
-            console.log('TTS error but form is active, not restarting recording');
+        }
+
+        try {
+            const response = await fetch('/api/text-to-speech', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: cleanMessage })
+            });
+
+            console.log('TTS response status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const audioBlob = await response.blob();
+            console.log('Received audio blob:', audioBlob.type, audioBlob.size, 'bytes');
+            hideTypingIndicator();
+
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            if (audioPlayer) {
+                audioPlayer.pause();
+                audioPlayer.remove();
+                URL.revokeObjectURL(audioPlayer.src);
+            }
+
+            audioPlayer = new Audio(audioUrl);
+            audioPlayer.volume = isMuted ? 0 : 1;
+            isAITalking = true;
+
+            const cleanup = () => {
+                if (audioPlayer) {
+                    try {
+                        audioPlayer.pause();
+                    } catch {}
+                }
+                URL.revokeObjectURL(audioUrl);
+            };
+
+            audioPlayer.oncanplaythrough = () => {
+                console.log('Audio can play through, attempting to play...');
+                audioPlayer.play()
+                    .then(() => {
+                        console.log('Audio playing successfully');
+                        if (recognition) {
+                            recognition.abort();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error playing audio:', error);
+                        isAITalking = false;
+                        displayMessage('Click anywhere to activate audio', 'system');
+                        document.body.addEventListener('click', function playAudioOnce() {
+                            audioPlayer.play().catch(console.error);
+                            document.body.removeEventListener('click', playAudioOnce);
+                        });
+                    });
+            };
+
+            const audioTimeout = setTimeout(() => {
+                console.log('Audio timeout fallback triggered');
+                if (voicemodestatus && !isAITalking && !isFormActive) {
+                    console.log('Fallback: restarting recording due to timeout');
+                    startRecording();
+                } else if (isFormActive) {
+                    console.log('Timeout fallback but form is active, not restarting recording');
+                }
+                cleanup();
+                conclude();
+            }, 30000);
+
+            audioPlayer.onended = () => {
+                console.log('Audio finished playing');
+                clearTimeout(audioTimeout);
+                cleanup();
+                isAITalking = false;
+                conclude();
+            };
+
+            audioPlayer.onerror = () => {
+                console.error('Audio error');
+                clearTimeout(audioTimeout);
+                cleanup();
+                isAITalking = false;
+                conclude();
+            };
+
+            audioPlayer.ontimeupdate = () => {
+                console.log(`Audio playback progress: ${audioPlayer.currentTime}/${audioPlayer.duration} seconds`);
+            };
+
+        } catch (error) {
+            console.error('Error in text-to-speech:', error);
+            hideTypingIndicator();
+            displayMessage('Lo siento, hubo un problema generando el audio.', 'assistant');
+            conclude();
         }
     });
 }  
 
-// 🔹 Function: Display Messages in the chat
-function displayMessage(content, role = "assistant") {
-    // Check for script tags in the content
-    const scriptRegex = /<script>(.*?)<\/script>/g;
-    let scriptFound = false;
-    let cleanContent = content;
-    
-    // Extract and execute any scripts
-    let match;
-    while ((match = scriptRegex.exec(content)) !== null) {
-        scriptFound = true;
-        const scriptContent = match[1];
-        cleanContent = content.replace(match[0], '').trim();
-        
-        try {
-            // Execute the script
-            console.log('Executing script:', scriptContent);
-            eval(scriptContent);
-        } catch (error) {
-            console.error('Error executing script:', error);
-        }
-    }
-    
-    // Only display the message if there's content after removing scripts
-    if (cleanContent && cleanContent.trim()) {
-        const messageDiv = document.createElement("div");
-        messageDiv.classList.add("message", `${role}-message`);
-        messageDiv.textContent = cleanContent;
-        chatMessages.appendChild(messageDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-}
+function startRecording() { /* disabled (text-only mode) */ }
 
-// 🔹 Toggle Voice/Text Mode
-async function toggleMode() {
-    // Clear any pending speech recognition timers
-    if (window.noSpeechTimer) {
-        clearTimeout(window.noSpeechTimer);
-        window.noSpeechTimer = null;
+function handleStartChatClick(event) {
+    if (event) {
+        event.preventDefault();
     }
 
-    // If there's a "Esperando tu voz..." message, remove it
-    const messages = document.querySelectorAll('.message');
-    messages.forEach(msg => {
-        if (msg.textContent.includes("Esperando tu voz") || 
-            msg.textContent.includes("Parece que no estás hablando")) {
-            msg.remove();
-        }
-    });
-
-    // Update mode state
-    voicemodestatus = !voicemodestatus;
-    const isTextMode = !voicemodestatus;
-
-    // If switching to text mode, stop any ongoing recognition
-    if (isTextMode && recognition) {
-        recognition.stop();
-    }
-
-    // Update UI elements
-    modeToggleBtn.classList.toggle("toggled", isTextMode);
-    modeLabel.textContent = isTextMode ? "Text Mode" : "Voice Mode";
-    modeIcon.innerHTML = "";
-    const iconSvg = createModeIcon(isTextMode);
-    modeIcon.appendChild(iconSvg);
-
-    // Show/hide appropriate input sections
-    inputSection.classList.toggle("hidden", !isTextMode);
-    sendBtn.classList.toggle("hidden", !isTextMode);
-
-    // Show mode change message and set focus
-    if (isTextMode) {
-        displayMessage("Text mode activated. Type your message and press send.", 'system');
-        userInput?.focus();
-    } else {
-        displayMessage("Voice mode activated. You can speak when you see the microphone icon.", 'system');
-        setTimeout(startRecording, 1000);
-    }
-}
-
-// 🔹 Start Recording Speech
-function startRecording() {
-    console.log('startRecording called, voicemodestatus:', voicemodestatus, 'isFormActive:', isFormActive);
-    if (!voicemodestatus) {
-        console.log('Voice mode is disabled, not starting recording');
+    if (chatInitialized) {
+        console.log('Chat already initialized; ignoring duplicate start request');
         return;
     }
-    
-    // Don't start recording if form is active
-    if (isFormActive) {
-        console.log('Form is active, not starting voice recording');
-        return;
-    }
-    
-    console.log('Starting recording process...');
 
-    // Limpiar cualquier temporizador existente
-    if (window.noSpeechTimer) {
-        clearTimeout(window.noSpeechTimer);
-        window.noSpeechTimer = null;
-    }
-
-    // Remover mensajes de espera anteriores
-    const messages = document.querySelectorAll('.message');
-    messages.forEach(msg => {
-        if (msg.textContent.includes("Esperando tu voz") || 
-            msg.textContent.includes("Escuchando...")) {
-            msg.remove();
-        }
-    });
-
-    console.log('Starting speech recognition...');
-    showTypingIndicator("user");
-    
-    // Display visual feedback that we're listening
-    if (voicemodestatus) {
-        displayMessage("Listening...", 'system');
-    }
-
-    fetch('/api/speech-to-text', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-    })
-    .then(response => {
-        console.log('Speech-to-text response status:', response.status);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        hideTypingIndicator();
-        // Remove the "Listening..." message
-        chatMessages.removeChild(chatMessages.lastChild);
-
-        if (data.error) {
-            throw new Error(data.error);
-        }
-
-        if (data.text && data.text.trim()) {
-            console.log("Speech recognized:", data.text);
-            displayMessage(data.text, 'user');
-            sendMessageToAI(data.text);
-        } else if (data.error) {
-            console.error("Speech error:", data.error);
-            displayMessage("There was a problem with speech recognition. Could you try again?", 'system');
-            setTimeout(startRecording, 2000);
-        } else {
-            console.log("No speech detected");
-            // Limpiar cualquier temporizador existente
-            if (window.noSpeechTimer) {
-                clearTimeout(window.noSpeechTimer);
-            }
-            
-            // Remover mensajes de espera anteriores
-            const messages = document.querySelectorAll('.message');
-            messages.forEach(msg => {
-                if (msg.textContent.includes("Esperando tu voz") || 
-                    msg.textContent.includes("Listening...")) {
-                    msg.remove();
-                }
-            });
-            
-            if (voicemodestatus) {  // Solo si estamos en modo voz
-                // Esperar 20 segundos antes de mostrar el mensaje
-                window.noSpeechTimer = setTimeout(() => {
-                    if (voicemodestatus) {  // Verificar de nuevo que seguimos en modo voz
-                        displayMessage("Parece que no estás hablando. ¿Hay algo en lo que pueda ayudarte? Puedes intentar hablar de nuevo o usar el modo texto si lo prefieres.", 'system');
-                        setTimeout(startRecording, 2000);
-                    }
-                }, 20000);
-                
-                // Mostrar mensaje de espera
-                displayMessage("Waiting for your voice...", 'system');
-            }
-        }
-    })
-    .catch(error => {
-        console.error('Error in speech-to-text:', error);
-        hideTypingIndicator();
-        // Remove the "Listening..." message if it exists
-        if (chatMessages.lastChild && chatMessages.lastChild.textContent === "Listening...") {
-            chatMessages.removeChild(chatMessages.lastChild);
-        }
-        displayMessage("Lo siento, hubo un problema al escucharte. ¿Podrías intentarlo de nuevo?", 'assistant');
-        setTimeout(startRecording, 2000);
+    chatInitialized = true;
+    console.log('Start chat button clicked');
+    showChatScreen().catch(error => {
+        console.error('Error showing chat screen:', error);
+        displayMessage(error.message, 'system');
+        chatInitialized = false;
     });
 }
 // 🔹 Send Message to AI and Handle Response
@@ -697,6 +533,7 @@ window.sendMessageToAI = function(text, silent = false) {
         console.log('Received AI response, playing audio...');
         // Pass the interruption flag to playAudioResponse
         playAudioResponse(data.message, false, wasInterrupted);
+        // Removed next visitor prompt logic for simplified text-only flow
     })
     .catch(error => {
         console.error('Error sending message:', error);
@@ -797,6 +634,31 @@ function handleInputChange() {
   sendBtn.disabled = !hasText;
 }
 
+// Render chat bubbles in the conversation pane
+function displayMessage(text, sender = 'assistant') {
+    if (!chatMessages) {
+        chatMessages = document.getElementById('chatMessages');
+    }
+    if (!chatMessages || !text) {
+        return;
+    }
+
+    const messageEl = document.createElement('div');
+    messageEl.classList.add('message');
+
+    if (sender === 'user') {
+        messageEl.classList.add('user-message');
+    } else if (sender === 'system') {
+        messageEl.classList.add('system-message');
+    } else {
+        messageEl.classList.add('assistant-message');
+    }
+
+    messageEl.textContent = text;
+    chatMessages.appendChild(messageEl);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
 // Add event listener for DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM fully loaded, initializing application...');
@@ -829,6 +691,10 @@ let photoPreview = null;
 let currentStream = null;
 let capturedPhotoData = null;
 let isFormActive = false; // Flag to track if form is being filled
+let summaryElements = {};
+let summaryOverlay = null;
+
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Initialize receptionist functionality
 function initializeReceptionist() {
@@ -836,6 +702,7 @@ function initializeReceptionist() {
     cameraVideo = document.getElementById('cameraVideo');
     photoCanvas = document.getElementById('photoCanvas');
     photoPreview = document.getElementById('photoPreview');
+    summaryOverlay = document.getElementById('visitSummaryOverlay');
     
     // Form controls
     const startCameraBtn = document.getElementById('startCamera');
@@ -843,17 +710,76 @@ function initializeReceptionist() {
     const retakePhotoBtn = document.getElementById('retakePhoto');
     const submitFormBtn = document.getElementById('submitForm');
     const cancelFormBtn = document.getElementById('cancelForm');
+    const cancelFormSecondaryBtn = document.getElementById('cancelFormSecondary');
     const visitorForm = document.getElementById('visitorForm');
+    summaryElements = {};
+    document.querySelectorAll('[data-summary]').forEach(el => {
+        summaryElements[el.dataset.summary] = el;
+    });
+    updateVisitSummary();
     
     // Event listeners
     startCameraBtn?.addEventListener('click', startCamera);
     takePhotoBtn?.addEventListener('click', takePhoto);
     retakePhotoBtn?.addEventListener('click', retakePhoto);
     cancelFormBtn?.addEventListener('click', hideCheckinForm);
+    cancelFormSecondaryBtn?.addEventListener('click', hideCheckinForm);
     visitorForm?.addEventListener('submit', submitVisitorForm);
     
-    // Form validation
-    visitorForm?.addEventListener('input', validateForm);
+    // Form validation and summary updates
+    visitorForm?.addEventListener('input', () => {
+        validateForm();
+        updateVisitSummary();
+    });
+}
+
+function updateVisitSummary() {
+    if (!summaryElements || Object.keys(summaryElements).length === 0) {
+        return;
+    }
+
+    const nameField = document.getElementById('visitorName');
+    const companyField = document.getElementById('visitorCompany');
+    const reasonField = document.getElementById('visitReason');
+    const typeField = document.getElementById('visitorType');
+
+    summaryElements.name && (summaryElements.name.textContent = nameField?.value?.trim() || '—');
+    summaryElements.company && (summaryElements.company.textContent = companyField?.value?.trim() || '—');
+    summaryElements.reason && (summaryElements.reason.textContent = reasonField?.value ? reasonField.options[reasonField.selectedIndex].text : '—');
+    const visitorTypeText = typeField && typeField.selectedIndex >= 0
+        ? typeField.options[typeField.selectedIndex].text
+        : 'Partner';
+    summaryElements.type && (summaryElements.type.textContent = visitorTypeText);
+}
+
+async function showVisitSummaryOverlay(data) {
+    if (!summaryOverlay) {
+        return;
+    }
+
+    if (summaryElements && Object.keys(summaryElements).length > 0) {
+        summaryElements.name && (summaryElements.name.textContent = data.name || '—');
+        summaryElements.company && (summaryElements.company.textContent = data.company || '—');
+        const reasonValue = data.reason || '';
+        const selectorValue = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(reasonValue) : reasonValue;
+        const reasonLabel = document.querySelector(`#visitReason option[value="${selectorValue}"]`)?.textContent || reasonValue || '—';
+        summaryElements.reason && (summaryElements.reason.textContent = reasonLabel);
+        summaryElements.type && (summaryElements.type.textContent = data.visitorTypeLabel || data.visitorType || 'Partner');
+    }
+
+    summaryOverlay.classList.remove('hidden');
+    requestAnimationFrame(() => summaryOverlay.classList.add('visible'));
+    document.body.classList.add('modal-open');
+}
+
+async function hideVisitSummaryOverlay() {
+    if (!summaryOverlay || summaryOverlay.classList.contains('hidden')) {
+        return;
+    }
+    summaryOverlay.classList.remove('visible');
+    document.body.classList.remove('modal-open');
+    await wait(400);
+    summaryOverlay.classList.add('hidden');
 }
 
 // Show check-in form
@@ -864,22 +790,10 @@ function showCheckinForm() {
         // Set form active flag
         isFormActive = true;
         
-        // Stop any current voice recognition
+        // Stop any current voice recognition (text mode keeps this idle, but guard just in case)
         if (recognition && recognition.state !== 'inactive') {
             recognition.stop();
             recognition.abort();
-        }
-        
-        // Stop any current AI speech
-        if (audioPlayer) {
-            audioPlayer.pause();
-            audioPlayer.currentTime = 0;
-            isAITalking = false;
-        }
-        
-        // Stop avatar speech if active
-        if (window.avatarModule && window.avatarModule.isAvailable()) {
-            window.avatarModule.stopSpeaking();
         }
         
         // Clear any pending speech recognition timers
@@ -900,13 +814,9 @@ function showCheckinForm() {
         
         // Show the form
         checkinForm.classList.remove('hidden');
+        document.body.classList.add('modal-open');
         
         // Pre-fill name if we have it from conversation
-        const nameField = document.getElementById('visitorName');
-        if (nameField && window.lastVisitorName) {
-            nameField.value = window.lastVisitorName;
-        }
-        
         // Display message to user
         displayMessage("Please complete the visitor registration form. The avatar will resume conversation once you submit the form.", 'system');
         
@@ -921,6 +831,7 @@ function hideCheckinForm() {
         
         // Hide the form
         checkinForm.classList.add('hidden');
+        document.body.classList.remove('modal-open');
         stopCamera();
         resetForm();
         
@@ -985,6 +896,7 @@ function takePhoto() {
     
     stopCamera();
     validateForm();
+    updateVisitSummary();
 }
 
 // Retake photo
@@ -997,6 +909,7 @@ function retakePhoto() {
     
     capturedPhotoData = null;
     validateForm();
+    updateVisitSummary();
 }
 
 // Stop camera
@@ -1030,6 +943,7 @@ async function submitVisitorForm(event) {
         name: document.getElementById('visitorName').value,
         company: document.getElementById('visitorCompany').value,
         reason: document.getElementById('visitReason').value,
+        visitorType: document.getElementById('visitorType').value,
         personToVisit: document.getElementById('personToVisit').value,
         email: document.getElementById('visitorEmail').value,
         photo: capturedPhotoData,
@@ -1048,25 +962,41 @@ async function submitVisitorForm(event) {
         const result = await response.json();
         
         if (result.success) {
-            console.log('Form submitted successfully - resuming conversation');
-            
+            console.log('Form submitted successfully - farewell and scheduled reset');
+
             // Set form inactive flag
             isFormActive = false;
-            
+
             // Hide form and reset
             checkinForm.classList.add('hidden');
+            document.body.classList.remove('modal-open');
             stopCamera();
             resetForm();
-            
-            // Show success message and resume conversation
-            displayMessage(`Thank you ${formData.name}! Your registration has been completed successfully. How else can I assist you today?`, 'assistant');
-            
-            // Play the success message with avatar/TTS
-            playAudioResponse(`Thank you ${formData.name}! Your registration has been completed successfully. How else can I assist you today?`, true);
-            
-            // Clear any stored visitor name
+
+            // Farewell + auto reset
+            const farewell = `Thank you ${formData.name}! Your check-in is complete. Welcome to Apeiron Tenerife Center of Excellence. Someone from our team will guide you shortly.`;
+
+            displayMessage(farewell, 'assistant');
+            await playAudioResponse(farewell, true);
+
+            const visitorTypeField = document.getElementById('visitorType');
+            const visitorTypeLabel = visitorTypeField && visitorTypeField.selectedIndex >= 0
+                ? visitorTypeField.options[visitorTypeField.selectedIndex].text
+                : 'Partner';
+
+            await wait(2000);
+            await showVisitSummaryOverlay({
+                ...formData,
+                visitorTypeLabel
+            });
+
+            await wait(3000);
+            await hideVisitSummaryOverlay();
+            performFullResetToLanding();
+
             window.lastVisitorName = null;
-            
+            updateVisitSummary();
+
         } else {
             alert('Error registering visitor: ' + result.message);
         }
@@ -1097,6 +1027,7 @@ function resetForm() {
     document.getElementById('retakePhoto')?.classList.add('hidden');
     
     validateForm();
+    updateVisitSummary();
 }
 
 // Enhanced message handling for receptionist
@@ -1159,6 +1090,38 @@ function resetConversation() {
     }, 500);
 }
 
+// Full reset to landing screen; requires operator pressing Start Check-in again
+function performFullResetToLanding() {
+    try {
+        window.awaitingNextVisitor = false;
+        if (window.postRegistrationTimer) {
+            clearTimeout(window.postRegistrationTimer);
+            window.postRegistrationTimer = null;
+        }
+        if (summaryOverlay) {
+            summaryOverlay.classList.remove('visible');
+            summaryOverlay.classList.add('hidden');
+        }
+        document.body.classList.remove('modal-open');
+        if (window.avatarModule && window.avatarModule.isAvailable()) {
+            window.avatarModule.close();
+        }
+        if (audioPlayer) {
+            try { audioPlayer.pause(); } catch {}
+            audioPlayer = null;
+            isAITalking = false;
+        }
+        const chatMessagesEl = document.getElementById('chatMessages');
+        if (chatMessagesEl) chatMessagesEl.innerHTML = '';
+        fetch('/api/reset-conversation', { method: 'POST' }).catch(()=>{});
+        chatScreen.classList.add('hidden');
+        landingScreen.classList.remove('hidden');
+        landingScreen.style.opacity = '1';
+        chatInitialized = false;
+    } catch (e) {
+        console.error('Error in performFullResetToLanding:', e);
+    }
+}
 // Initialize receptionist when app loads
 document.addEventListener('DOMContentLoaded', function() {
     initializeReceptionist();
